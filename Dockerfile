@@ -15,8 +15,11 @@ COPY package*.json ./
 # Instalamos dependencias con configuración tolerante a fallos de red
 RUN npm install --no-fund --network-timeout=600000 --prefer-offline
 
-# Copiamos el resto de los archivos
+# Copiamos el resto de los archivos (incluyendo schema.prisma)
 COPY . .
+
+# Generamos el cliente Prisma antes de la compilación
+RUN npx prisma generate
 
 # Compilamos la aplicación NestJS
 RUN npm run build && \
@@ -33,4 +36,4 @@ ENV NODE_ENV=production \
 EXPOSE 8080
 
 # Comando para iniciar la aplicación
-CMD ["npm", "run", "start:prod"]
+CMD npx prisma migrate deploy && npm run start:prod
