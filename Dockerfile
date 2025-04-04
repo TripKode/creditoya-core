@@ -1,46 +1,36 @@
-# ====== Etapa 1: Construcción ======
-FROM node:20-alpine AS builder
+# Usamos una única etapa para simplificar
+FROM node:20-alpine
 
-# Crear directorio de trabajo
 WORKDIR /app
 
-# Copiar archivos necesarios para instalar dependencias
+# Mejoramos la configuración de npm para problemas de red
+RUN npm config set registry https://registry.npmjs.org/ \
+    && npm config set fetch-timeout 600000 \
+    && npm config set fetch-retries 5 \
+    && npm config set fetch-retry-maxtimeout 120000
+
+# Copiamos archivos de package para aprovechar la caché
 COPY package*.json ./
-COPY tsconfig*.json ./
-COPY prisma ./prisma
 
-# Instalar dependencias
-RUN npm install
+# Instalamos dependencias con configuración tolerante a fallos de red
+RUN npm install --no-fund --network-timeout=600000 --prefer-offline
 
-# Ejecutar prisma generate
-RUN npx prisma generate
-
-# Copiar el resto del código
+# Copiamos el resto de los archivos
 COPY . .
 
-# Compilar el backend (NestJS)
-RUN npm run build
-
-# ====== Etapa 2: Producción ======
-FROM node:20-alpine AS production
-
-# Crear directorio de trabajo
-WORKDIR /app
-
-# Copiar los archivos necesarios del builder
-COPY --from=builder /app/package*.json ./
-COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
-COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
-COPY --from=builder /app/prisma ./prisma
-
-# Exponer el puerto de la aplicación
-EXPOSE 8080
+# Compilamos la aplicación NestJS
+RUN npm run build && \
+    find dist -name "main.js" && \
+    ls -la dist/ && \
+    echo "Verificando archivo principal..." && \
+    if [ -f "./dist/src/main.js" ]; then echo "Archivo principal existe"; else echo "Archivo principal NO encontrado" && exit 1; fi
 
 # Variables de entorno
-ENV NODE_ENV=production
-ENV PORT=8080
+ENV NODE_ENV=production \
+    PORT=8080
 
-# Comando de inicio flexible para producción o desarrollo
-CMD ["sh", "-c", "npx prisma generate && if [ \"$NODE_ENV\" = 'production' ]; then node dist/main.js; else npm run start:dev; fi"]
+# Exponemos los puertos necesarios
+EXPOSE 8080
+
+# Comando para iniciar la aplicación
+CMD ["npm", "run", "start:prod"]
