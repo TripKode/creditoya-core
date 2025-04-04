@@ -2,26 +2,26 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# Instalamos dependencias necesarias para Prisma y compilación
+# Install dependencies for Prisma and compilation
 RUN apk add --no-cache python3 make g++
 
-# Copiamos solo lo necesario para instalar dependencias
+# Copy only what's needed for dependencies
 COPY package*.json ./
 COPY prisma ./prisma/
 
-# Instalamos todas las dependencias, incluyendo las de desarrollo necesarias para build
+# Install dependencies
 RUN npm ci
 
-# Generamos cliente Prisma
+# Generate Prisma client
 RUN npx prisma generate
 
-# Copiamos el resto de la aplicación
+# Copy the rest of the application
 COPY . .
 
-# Compilamos la aplicación
+# Build the application
 RUN npm run build
 
-# Verificamos que el archivo main.js existe en la ubicación especificada
+# Verify main.js exists
 RUN if [ -f "dist/src/main.js" ]; then \
       echo "Archivo main.js encontrado en dist/src/main.js"; \
     else \
@@ -30,19 +30,18 @@ RUN if [ -f "dist/src/main.js" ]; then \
       exit 1; \
     fi
 
-# Configuración de entorno
+# Environment configuration
 ENV NODE_ENV=production \
     PORT=8080
 
-# Exponemos puerto
+# Expose port
 EXPOSE 8080
 
-# Script de inicio simple con ruta específica
-RUN echo '#!/bin/sh\n\
-echo "Ejecutando migraciones de Prisma..."\n\
-npx prisma migrate deploy --schema=./prisma/schema.prisma || true\n\
-echo "Iniciando aplicación..."\n\
-exec node dist/src/main.js\n' > /app/start.sh && chmod +x /app/start.sh
+# Create a startup script
+RUN echo '#!/bin/sh' > /app/start.sh && \
+    echo 'npx prisma migrate deploy --schema=./prisma/schema.prisma || echo "Migraciones omitidas"' >> /app/start.sh && \
+    echo 'node dist/src/main.js' >> /app/start.sh && \
+    chmod +x /app/start.sh
 
-# Iniciamos la aplicación con el script
+# Use the startup script
 CMD ["/app/start.sh"]
