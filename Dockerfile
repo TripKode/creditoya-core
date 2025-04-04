@@ -9,6 +9,9 @@ RUN npm config set registry https://registry.npmjs.org/ \
     && npm config set fetch-retries 5 \
     && npm config set fetch-retry-maxtimeout 120000
 
+# Instalamos paquetes necesarios para compilaciones nativas
+RUN apk add --no-cache python3 make g++
+
 # Copiamos archivos de package para aprovechar la caché
 COPY package*.json ./
 
@@ -35,5 +38,16 @@ ENV NODE_ENV=production \
 # Exponemos los puertos necesarios
 EXPOSE 8080
 
+# Script para iniciar la aplicación correctamente
+RUN echo "#!/bin/sh\n\
+echo 'Configurando Prisma...'\n\
+npx prisma generate --schema=./prisma/schema.prisma\n\
+\n\
+echo 'Iniciando migraciones de Prisma...'\n\
+npx prisma migrate deploy --schema=./prisma/schema.prisma || echo 'Migraciones fallidas - continuando de todos modos'\n\
+\n\
+echo 'Iniciando aplicación...'\n\
+exec npm run start:prod\n" > /app/startup.sh && chmod +x /app/startup.sh
+
 # Comando para iniciar la aplicación
-CMD npx prisma migrate deploy && npm run start:prod
+CMD ["/app/startup.sh"]
