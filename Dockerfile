@@ -1,53 +1,48 @@
-# Usamos una única etapa para simplificar
 FROM node:20-alpine
 
 WORKDIR /app
 
-# Mejoramos la configuración de npm para problemas de red
-RUN npm config set registry https://registry.npmjs.org/ \
-    && npm config set fetch-timeout 600000 \
-    && npm config set fetch-retries 5 \
-    && npm config set fetch-retry-maxtimeout 120000
-
-# Instalamos paquetes necesarios para compilaciones nativas
+# Instalamos dependencias necesarias para Prisma y compilación
 RUN apk add --no-cache python3 make g++
 
-# Copiamos archivos de package para aprovechar la caché
+# Copiamos solo lo necesario para instalar dependencias
 COPY package*.json ./
+COPY prisma ./prisma/
 
-# Instalamos dependencias con configuración tolerante a fallos de red
-RUN npm install --no-fund --network-timeout=600000 --prefer-offline
+# Instalamos todas las dependencias, incluyendo las de desarrollo necesarias para build
+RUN npm ci
 
-# Copiamos el resto de los archivos (incluyendo schema.prisma)
-COPY . .
-
-# Generamos el cliente Prisma antes de la compilación
+# Generamos cliente Prisma
 RUN npx prisma generate
 
-# Compilamos la aplicación NestJS
-RUN npm run build && \
-    find dist -name "main.js" && \
-    ls -la dist/ && \
-    echo "Verificando archivo principal..." && \
-    if [ -f "./dist/src/main.js" ]; then echo "Archivo principal existe"; else echo "Archivo principal NO encontrado" && exit 1; fi
+# Copiamos el resto de la aplicación
+COPY . .
 
-# Variables de entorno
+# Compilamos la aplicación
+RUN npm run build
+
+# Verificamos que el archivo main.js existe en la ubicación especificada
+RUN if [ -f "dist/src/main.js" ]; then \
+      echo "Archivo main.js encontrado en dist/src/main.js"; \
+    else \
+      echo "ERROR: No se encontró main.js en dist/src/" && \
+      find dist -name "main.js" && \
+      exit 1; \
+    fi
+
+# Configuración de entorno
 ENV NODE_ENV=production \
     PORT=8080
 
-# Exponemos los puertos necesarios
+# Exponemos puerto
 EXPOSE 8080
 
-# Script para iniciar la aplicación correctamente
-RUN echo "#!/bin/sh\n\
-echo 'Configurando Prisma...'\n\
-npx prisma generate --schema=./prisma/schema.prisma\n\
-\n\
-echo 'Iniciando migraciones de Prisma...'\n\
-npx prisma migrate deploy --schema=./prisma/schema.prisma || echo 'Migraciones fallidas - continuando de todos modos'\n\
-\n\
-echo 'Iniciando aplicación...'\n\
-exec npm run start:prod\n" > /app/startup.sh && chmod +x /app/startup.sh
+# Script de inicio simple con ruta específica
+RUN echo '#!/bin/sh\n\
+echo "Ejecutando migraciones de Prisma..."\n\
+npx prisma migrate deploy --schema=./prisma/schema.prisma || true\n\
+echo "Iniciando aplicación..."\n\
+exec node dist/src/main.js\n' > /app/start.sh && chmod +x /app/start.sh
 
-# Comando para iniciar la aplicación
-CMD ["/app/startup.sh"]
+# Iniciamos la aplicación con el script
+CMD ["/app/start.sh"]
