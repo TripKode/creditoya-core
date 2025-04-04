@@ -1,0 +1,161 @@
+generator client {
+    provider = "prisma-client-js"
+}
+
+datasource db {
+    provider = "mongodb"
+    url      = env("MONGODB_URI")
+}
+
+model User {
+    id                     String            @id @default(uuid()) @map("_id")
+    password               String
+    email                  String            @unique
+    names                  String
+    firstLastName          String
+    secondLastName         String
+    currentCompanie        companiesUser     @default(no)
+    avatar                 String            @default("No definido")
+    phone                  String            @unique @default("No definido")
+    residence_phone_number String            @default("No definido")
+    phone_whatsapp         String            @default("No definido")
+    birth_day              DateTime?
+    genre                  String            @default("No definido")
+    residence_address      String            @default("No definidos")
+    city                   String            @default("No definidos")
+    Document               Document[]
+    isBan                  Boolean?
+    createdAt              DateTime          @default(now())
+    updatedAt              DateTime          @updatedAt
+    LoanApplication        LoanApplication[]
+}
+
+model Document {
+    id            String        @id @default(uuid()) @map("_id")
+    user          User          @relation(fields: [userId], references: [id])
+    userId        String
+    documentSides String        @default("No definido")
+    upId          String        @default("No definido")
+    imageWithCC   String        @default("No definido")
+    typeDocument  TypesDocument @default(CC)
+    number        String        @default("No definido")
+    createdAt     DateTime      @default(now())
+    updatedAt     DateTime      @updatedAt
+}
+
+model UsersIntranet {
+    id         String   @id @default(uuid()) @map("_id")
+    name       String
+    lastNames  String
+    email      String   @unique
+    password   String
+    phone      String   @unique @default("No definido")
+    rol        String   @default("No definido")
+    isActive   Boolean  @default(false)
+    avatar     String   @default("No definido")
+    updated_at DateTime @default(now())
+    created_at DateTime @default(now())
+}
+
+model LoanApplication {
+    id                   String     @id @default(uuid()) @map("_id")
+    userId               String
+    employeeId           String?    @default("Standby")
+    user                 User       @relation(fields: [userId], references: [id])
+    fisrt_flyer          String?
+    upid_first_flayer    String?
+    second_flyer         String?
+    upid_second_flyer    String?
+    third_flyer          String?
+    upid_third_flayer    String?
+    reasonReject         String?
+    reasonChangeCantity  String?
+    cantity              String
+    newCantity           String?
+    newCantityOpt        Boolean?
+    bankSavingAccount    Boolean    @default(true)
+    bankNumberAccount    String
+    entity               String
+    labor_card           String?
+    upid_labor_card      String?
+    terms_and_conditions Boolean
+    signature            String
+    upSignatureId        String
+    status               StatusLoan @default(Pendiente)
+    created_at           DateTime   @default(now())
+    updated_at           DateTime   @updatedAt
+}
+
+model WhatsappSession {
+    id         String        @id @default(uuid()) @map("_id")
+    sessionId  String
+    status     statusSession @default(activo)
+    created_at DateTime      @default(now())
+    updated_at DateTime      @updatedAt
+}
+
+model ReportIssue {
+    id          String          @id @default(uuid()) @map("_id")
+    description String
+    images      String[]
+    app         appReport
+    status      StatusIssues    @default(activo)
+    priority    PriorityStatus?
+    resSupport  String?
+    created_at  DateTime        @default(now())
+    update_at   DateTime        @updatedAt
+}
+
+enum StatusLoan {
+    Pendiente
+    Aprobado
+    Aplazado
+    Borrador
+    Archivado
+}
+
+enum RolIntranet {
+    admin
+    employee
+}
+
+enum TypesDocument {
+    CC
+    CE
+    PASAPORTE
+}
+
+enum companiesUser {
+    incauca_sas
+    incauca_cosecha
+    providencia_sas
+    providencia_cosecha
+    con_alta
+    pichichi_sas
+    pichichi_coorte
+    valor_agregado
+    no
+}
+
+enum StatusIssues {
+    activo
+    pendiente
+    corregido
+}
+
+enum PriorityStatus {
+    Baja
+    Media
+    Alta
+    Critica
+}
+
+enum appReport {
+    intranet
+    clients
+}
+
+enum statusSession {
+    activo
+    revocado
+}
