@@ -6,10 +6,13 @@ import { LoanModule } from './loan/loan.module';
 import { ConfigModule } from '@nestjs/config';
 import { ClientModule } from './client/client.module';
 import { CatchModule } from './catch/catch.module';
-import { GcpModule } from './gcp/gcp.module';
+import { GoogleCloudModule } from './gcp/gcp.module';
 import { CloudinaryModule } from './cloudinary/cloudinary.module';
 import { MailModule } from './mail/mail.module';
 import { AuthModule } from './auth/auth.module';
+import { BackupModule } from './backup/backup.module';
+import { RedisModule } from './redis/redis.module';
+import { PdfsModule } from './pdfs/pdfs.module';
 
 @Module({
   imports: [
@@ -18,10 +21,13 @@ import { AuthModule } from './auth/auth.module';
     ConfigModule.forRoot({ isGlobal: true }),
     ClientModule,
     CatchModule,
-    GcpModule,
+    GoogleCloudModule,
     CloudinaryModule,
     MailModule,
     AuthModule,
+    BackupModule,
+    RedisModule,
+    PdfsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

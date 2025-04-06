@@ -99,4 +99,48 @@ export class GoogleCloudService {
       };
     }
   }
+
+  /**
+ * Verifica si un archivo existe en Google Cloud Storage.
+ * @param fileName Nombre del archivo a verificar.
+ * @returns Verdadero si el archivo existe, falso de lo contrario.
+ */
+  async fileExists(fileName: string): Promise<boolean> {
+    try {
+      const storage = this.getStorageInstance();
+      const bucketName = process.env.NAME_BUCKET_GOOGLE_STORAGE as string;
+      const [exists] = await storage.bucket(bucketName).file(fileName).exists();
+      return exists;
+    } catch (error) {
+      this.logger.error('Error al verificar si el archivo existe:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Obtiene una URL firmada para acceder a un archivo por un tiempo limitado.
+   * @param fileName Nombre del archivo.
+   * @param expirationMinutes Tiempo de expiración en minutos (predeterminado: 60).
+   * @returns URL firmada o null si hay un error.
+   */
+  async getSignedUrl(fileName: string, expirationMinutes = 60): Promise<string | null> {
+    try {
+      const storage = this.getStorageInstance();
+      const bucketName = process.env.NAME_BUCKET_GOOGLE_STORAGE as string;
+
+      const [url] = await storage
+        .bucket(bucketName)
+        .file(fileName)
+        .getSignedUrl({
+          version: 'v4',
+          action: 'read',
+          expires: Date.now() + expirationMinutes * 60 * 1000,
+        });
+
+      return url;
+    } catch (error) {
+      this.logger.error('Error al obtener la URL firmada:', error);
+      return null;
+    }
+  }
 }

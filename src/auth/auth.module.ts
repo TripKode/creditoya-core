@@ -9,6 +9,7 @@ import { JwtClientStrategy } from './strategies/jwt-client.strategy';
 import { LocalIntranetStrategy } from './strategies/local-intranet.strategy';
 import { LocalClientStrategy } from './strategies/local-client.strategy';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { RedisModule } from 'src/redis/redis.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
     ConfigModule.forRoot({
       isGlobal: true,
     }),
+    RedisModule,
   ],
   controllers: [AuthController],
   providers: [

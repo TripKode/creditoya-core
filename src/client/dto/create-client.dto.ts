@@ -1,3 +1,12 @@
+export class CreateClientDto {
+  email: string;
+  password: string;
+  names: string;
+  firstLastName: string;
+  secondLastName: string;
+  phone?: string;
+};
+
 export class SignInDto {
   email: string;
   password: string;

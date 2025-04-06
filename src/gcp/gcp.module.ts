@@ -5,4 +5,4 @@ import { GoogleCloudService } from './gcp.service';
   providers: [GoogleCloudService],
   exports: [GoogleCloudService]
 })
-export class GcpModule {}
+export class GoogleCloudModule {}

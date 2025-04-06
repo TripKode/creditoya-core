@@ -11,14 +11,15 @@ import {
   HttpStatus,
   UseGuards,
 } from '@nestjs/common';
-import { ClientService, CreateClientDto, UpdateClientDto } from './client.service';
+import { ClientService } from './client.service';
 import { User, Document } from '@prisma/client';
 import { ClientAuthGuard } from '../auth/guards/client-auth.guard';
 import { IntranetAuthGuard } from '../auth/guards/intranet-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
-import { RejectReasonDto, SignInDto, UpdateDocumentDto, UpdatePasswordDto } from './dto/create-client.dto';
+import { RejectReasonDto, UpdateDocumentDto, UpdatePasswordDto, CreateClientDto } from './dto/create-client.dto';
+import { UpdateClientDto } from './dto/update-client.dto';
 
 @Controller('clients')
 export class ClientController {
@@ -34,7 +35,7 @@ export class ClientController {
   }
 
   // Acceso solo para clientes o intranet
-  @UseGuards(ClientAuthGuard)
+  @UseGuards(IntranetAuthGuard)
   @Get(':id')
   async get(
     @Param('id') id: string,
