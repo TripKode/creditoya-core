@@ -6,6 +6,8 @@ import { LoanApplication, StatusLoan } from '@prisma/client';
 import { CreateLoanApplicationDto } from './dto/create-loan.dto';
 import { UpdateLoanApplicationDto } from './dto/update-loan.dto';
 import { ChangeLoanStatusDto } from './dto/change-loan-status.dto';
+import { MailService } from 'src/mail/mail.service';
+import { PdfsService } from 'src/pdfs/pdfs.service';
 
 @Injectable()
 export class LoanService {
@@ -16,7 +18,9 @@ export class LoanService {
 
   constructor(
     private prisma: PrismaService,
-    private redisService: RedisService
+    private redisService: RedisService,
+    private readonly mailService: MailService,
+    private readonly pdfService: PdfsService,
   ) { }
 
   // Helper method to generate loan cache key
@@ -59,12 +63,20 @@ export class LoanService {
       };
 
       const newLoan = await this.prisma.loanApplication.create({
-        data: loanApplicationData
+        data: loanApplicationData,
+        include: { user: true },
       });
 
       // Invalidate cache after new loan creation
       await this.invalidateLoanCache();
       await this.redisService.del(this.getUserLoansCacheKey(userId));
+
+      // Send email to user
+      await this.mailService.sendMailByUser({
+        subject: 'Solicitud de préstamo creada',
+        content: `Su solicitud de préstamo ha sido creada con éxito. ID: ${newLoan.id}`,
+        addressee: newLoan.user.email,
+      });
 
       return newLoan;
     } catch (error) {
@@ -734,6 +746,20 @@ export class LoanService {
       await this.invalidateLoanCache(loanApplicationId);
       await this.redisService.del(this.getUserLoansCacheKey(existingLoan.userId));
 
+      const intraInfo = await this.prisma.usersIntranet.findFirst({
+        where: { id: updatedLoan.employeeId! },
+      })
+
+      if (updatedLoan.newCantity && updatedLoan.reasonChangeCantity && intraInfo) {
+        await this.mailService.sendChangeCantityMail({
+          employeeName: `${intraInfo.name} ${intraInfo.lastNames}`,
+          loanId: updatedLoan.id,
+          reason_aproved: updatedLoan.reasonChangeCantity,
+          cantity_aproved: updatedLoan.newCantity,
+          mail: updatedLoan.user.email,
+        });
+      }
+
       return updatedLoan;
     } catch (error) {
       if (error instanceof NotFoundException) {
@@ -824,6 +850,14 @@ export class LoanService {
       // Invalidate cache after update
       await this.invalidateLoanCache(loanId);
       await this.redisService.del(this.getUserLoansCacheKey(existingLoan.userId));
+
+      await this.mailService.sendChangeCantityMail({
+        employeeName: `${existingLoan.employeeId} ${existingLoan.employeeId}`,
+        loanId: updatedLoan.id,
+        reason_aproved: reasonChangeCantity,
+        cantity_aproved: newCantity,
+        mail: updatedLoan.user.email,
+      });
 
       return updatedLoan;
     } catch (error) {

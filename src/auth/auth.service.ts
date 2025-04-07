@@ -142,6 +142,8 @@ export class AuthService {
     };
 
     const token = this.jwtService.sign(payload);
+
+    console.log('Token generado:', token, payload);
     
     // Guardar token en Redis
     await this.redis.set(

@@ -4,7 +4,7 @@ import { JwtService } from '@nestjs/jwt';
 import * as nodemailer from 'nodemailer';
 import { Readable } from 'stream';
 import { MJMLtoHTML } from '../../handlers/mjmlToHtml';
-import { ActiveAccountMail } from '../../templatesEmails/generates/GenerateActiveAccountMail'
+import { ActiveAccountMail } from '../../templatesEmails/generates/GenerateActiveAccountMail';
 import { ChangeCantityMail } from '../../templatesEmails/generates/GenerateChangeCantityMail';
 import { generateMailChangeStatus } from '../../templatesEmails/generates/GenerateChangeStatusMail';
 import { generateMailRejectDocument } from '../../templatesEmails/generates/GenerateRejectDocument';
@@ -14,14 +14,22 @@ export class MailService {
   private transporter: nodemailer.Transporter;
 
   constructor(
-    private jwtService: JwtService,
-    private configService: ConfigService,
+    private readonly jwtService: JwtService,
+    private readonly configService: ConfigService,
   ) {
+    // Inicializar transporter con verificación de variables de entorno
+    const email = this.configService.get<string>('GOOGLE_EMAIL');
+    const password = this.configService.get<string>('GOOGLE_PASSWORD');
+
+    if (!email || !password) {
+      throw new Error('Email credentials not properly configured');
+    }
+
     this.transporter = nodemailer.createTransport({
       service: 'gmail',
       auth: {
-        user: this.configService.get<string>('GOOGLE_EMAIL'),
-        pass: this.configService.get<string>('GOOGLE_PASSWORD'),
+        user: email,
+        pass: password,
       },
     });
   }
@@ -36,23 +44,36 @@ export class MailService {
     }
   }
 
+  private async getEmailSender(): Promise<string> {
+    const email = this.configService.get<string>('GOOGLE_EMAIL');
+    if (!email) {
+      throw new Error('Email sender not properly configured');
+    }
+    return `"Credito Ya" ${email}`;
+  }
+
   async sendActiveAccountMail(data: {
     completeName: string;
     mail: string;
     password: string;
-  }) {
-    const content = ActiveAccountMail(data);
-    const html = await MJMLtoHTML(content);
+  }): Promise<nodemailer.SentMessageInfo> {
+    try {
+      const content = ActiveAccountMail(data);
+      const html = await MJMLtoHTML(content);
 
-    const mailData = await this.transporter.sendMail({
-      from: `"Credito ya" ${this.configService.get<string>('GOOGLE_EMAIL')}`,
-      to: data.mail,
-      subject: 'Activacion cuenta Intranet',
-      text: '¡Funciona!',
-      html,
-    });
+      const mailData = await this.transporter.sendMail({
+        from: await this.getEmailSender(),
+        to: data.mail,
+        subject: 'Activación cuenta Intranet',
+        text: 'Activación de tu cuenta en Intranet de Credito Ya',
+        html,
+      });
 
-    return mailData;
+      return mailData;
+    } catch (error) {
+      console.error('Error sending activation email:', error);
+      throw new Error(`Failed to send activation email: ${error.message}`);
+    }
   }
 
   async sendMailByUser(data: {
@@ -60,12 +81,13 @@ export class MailService {
     content: string;
     addressee: string | string[];
     files?: File[];
-  }) {
-    const attachmentsFiles = data.files
-      ? await Promise.all(
+  }): Promise<nodemailer.SentMessageInfo> {
+    try {
+      const attachmentsFiles = data.files
+        ? await Promise.all(
           data.files.map(async (file: File) => {
             const filename = `${Date.now()}-${file.name}`;
-            
+
             // Create a readable stream from file buffer
             const fileArrayBuffer = await file.arrayBuffer();
             const fileBuffer = Buffer.from(fileArrayBuffer);
@@ -74,39 +96,48 @@ export class MailService {
             fileStream.push(null);
 
             return {
-              filename: filename,
+              filename,
               content: fileStream,
             };
           }),
         )
-      : [];
+        : [];
 
-    const mailData = await this.transporter.sendMail({
-      from: `"Credito ya" ${this.configService.get<string>('GOOGLE_EMAIL')}`,
-      to: data.addressee,
-      subject: data.subject,
-      text: '¡Funciona!',
-      html: data.content,
-      attachments: attachmentsFiles,
-    });
+      const mailData = await this.transporter.sendMail({
+        from: await this.getEmailSender(),
+        to: data.addressee,
+        subject: data.subject,
+        text: data.subject, // Usando el subject como texto por defecto
+        html: data.content,
+        attachments: attachmentsFiles,
+      });
 
-    return mailData;
+      return mailData;
+    } catch (error) {
+      console.error('Error sending mail with attachments:', error);
+      throw new Error(`Failed to send email: ${error.message}`);
+    }
   }
 
   async sendMailByUserImage(data: {
     addressee: string;
     content: string;
     subject: string;
-  }) {
-    const mailData = await this.transporter.sendMail({
-      from: `"Credito ya" ${this.configService.get<string>('GOOGLE_EMAIL')}`,
-      to: data.addressee,
-      subject: data.subject,
-      text: '¡Funciona!',
-      html: data.content,
-    });
+  }): Promise<nodemailer.SentMessageInfo> {
+    try {
+      const mailData = await this.transporter.sendMail({
+        from: await this.getEmailSender(),
+        to: data.addressee,
+        subject: data.subject,
+        text: data.subject, // Usando el subject como texto por defecto
+        html: data.content,
+      });
 
-    return mailData;
+      return mailData;
+    } catch (error) {
+      console.error('Error sending image mail:', error);
+      throw new Error(`Failed to send email with image: ${error.message}`);
+    }
   }
 
   async sendChangeCantityMail(data: {
@@ -115,25 +146,34 @@ export class MailService {
     reason_aproved: string;
     cantity_aproved: string;
     mail: string;
-  }) {
-    const content = ChangeCantityMail({
-      employeeName: data.employeeName,
-      loanId: data.loanId,
-      reason_aproved: data.reason_aproved,
-      cantity_aproved: data.cantity_aproved,
-    });
+  }): Promise<nodemailer.SentMessageInfo> {
+    try {
+      if (!data.mail || !data.loanId || !data.cantity_aproved) {
+        throw new Error('Missing required fields for change quantity email');
+      }
 
-    const html = await MJMLtoHTML(content);
+      const content = ChangeCantityMail({
+        employeeName: data.employeeName || 'Equipo Credito Ya',
+        loanId: data.loanId,
+        reason_aproved: data.reason_aproved || 'Ajuste en la cantidad solicitada',
+        cantity_aproved: data.cantity_aproved,
+      });
 
-    const mailData = await this.transporter.sendMail({
-      from: `"Credito ya" ${this.configService.get<string>('GOOGLE_EMAIL')}`,
-      to: data.mail,
-      subject: 'La cantidad requerida de tu prestamo ha cambiado',
-      text: '¡Funciona!',
-      html,
-    });
+      const html = await MJMLtoHTML(content);
 
-    return mailData;
+      const mailData = await this.transporter.sendMail({
+        from: await this.getEmailSender(),
+        to: data.mail,
+        subject: 'La cantidad requerida de tu préstamo ha cambiado',
+        text: `La cantidad requerida de tu préstamo #${data.loanId} ha cambiado a ${data.cantity_aproved}`,
+        html,
+      });
+
+      return mailData;
+    } catch (error) {
+      console.error('Error sending change quantity email:', error);
+      throw new Error(`Failed to send change quantity email: ${error.message}`);
+    }
   }
 
   async sendChangeStatusMail(data: {
@@ -141,38 +181,59 @@ export class MailService {
     employeeName: string;
     loanId: string;
     mail: string;
-  }) {
-    const content = generateMailChangeStatus({
-      newStatus: data.newStatus,
-      employeeName: data.employeeName,
-      loanId: data.loanId,
-    });
+  }): Promise<nodemailer.SentMessageInfo> {
+    try {
+      if (!data.mail || !data.loanId || !data.newStatus) {
+        throw new Error('Missing required fields for status change email');
+      }
 
-    const html = await MJMLtoHTML(content);
+      const content = generateMailChangeStatus({
+        newStatus: data.newStatus,
+        employeeName: data.employeeName || 'Equipo Credito Ya',
+        loanId: data.loanId,
+      });
 
-    const mailData = await this.transporter.sendMail({
-      from: `"Credito ya" ${this.configService.get<string>('GOOGLE_EMAIL')}`,
-      to: data.mail,
-      subject: 'El estado de tu prestamo ha cambiado',
-      text: '¡Funciona!',
-      html,
-    });
+      const html = await MJMLtoHTML(content);
 
-    return mailData;
+      const mailData = await this.transporter.sendMail({
+        from: await this.getEmailSender(),
+        to: data.mail,
+        subject: 'El estado de tu préstamo ha cambiado',
+        text: `El estado de tu préstamo #${data.loanId} ha cambiado a ${data.newStatus}`,
+        html,
+      });
+
+      return mailData;
+    } catch (error) {
+      console.error('Error sending status change email:', error);
+      throw new Error(`Failed to send status change email: ${error.message}`);
+    }
   }
 
-  async sendDeleteDocMail(data: { loanId: string; mail: string }) {
-    const content = generateMailRejectDocument({ loanId: data.loanId });
-    const html = await MJMLtoHTML(content);
+  async sendDeleteDocMail(data: {
+    loanId: string;
+    mail: string
+  }): Promise<nodemailer.SentMessageInfo> {
+    try {
+      if (!data.mail || !data.loanId) {
+        throw new Error('Missing required fields for document rejection email');
+      }
 
-    const mailData = await this.transporter.sendMail({
-      from: `"Credito ya" ${this.configService.get<string>('GOOGLE_EMAIL')}`,
-      to: data.mail,
-      subject: 'Un documento de tu prestamo a sido rechazado',
-      text: '¡Funciona!',
-      html,
-    });
+      const content = generateMailRejectDocument({ loanId: data.loanId });
+      const html = await MJMLtoHTML(content);
 
-    return mailData;
+      const mailData = await this.transporter.sendMail({
+        from: await this.getEmailSender(),
+        to: data.mail,
+        subject: 'Un documento de tu préstamo ha sido rechazado',
+        text: `Un documento de tu préstamo #${data.loanId} ha sido rechazado`,
+        html,
+      });
+
+      return mailData;
+    } catch (error) {
+      console.error('Error sending document rejection email:', error);
+      throw new Error(`Failed to send document rejection email: ${error.message}`);
+    }
   }
 }

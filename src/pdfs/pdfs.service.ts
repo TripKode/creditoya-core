@@ -4,12 +4,16 @@ import { jsPDF } from 'jspdf';
 import JSZip from 'jszip';
 import { v4 as uuidv4 } from 'uuid';
 import { DocumentGenerationParams, PromissoryNoteData, PromissoryNoteGenerationParams, TextOptions } from './dto/create-pdf.dto';
+import { PrismaService } from 'src/prisma/prisma.service';
 
 @Injectable()
 export class PdfsService {
   private readonly logger = new Logger(PdfsService.name);
 
-  constructor(private readonly googleCloudService: GoogleCloudService) {}
+  constructor(
+    private readonly googleCloudService: GoogleCloudService,
+    private readonly prismaService: PrismaService,
+  ) {}
 
   /**
    * Adds text to the PDF document with the provided options
@@ -198,7 +202,7 @@ export class PdfsService {
       },
       secondParagraph: "En caso de mora y mientras ella subsista, pagare (pagaremos) interese moratorios a la tasa máxima legal, sin perjuicio del derecho del acreedor en tal evento vencido el plazo de la obligación y exigible de una vez y en su totalidad el capital, los intereses moratorios y demás cargos a que haya lugar, siendo de nuestra responsabilidad el pago del impuesto y demás sumas que se causen con la emisión de este pagaré; de igual manera, por medio del presente documento apoderamos y autorizamos de manera especial, expresa e irrevocable a CREDITOYA SAS, para que en nuestro nombre y representación contrate la gestión de cobranza que se haga necesaria en el evento de mora en el cumplimiento de nuestras obligaciones, y por lo mismo, me (nos) obligo (obligamos) a pagar todos los gastos y costos de la cobranza judicial y extrajudicial, incluidos los honorarios de abogado, que pagare (pagaremos) conjuntamente con la liquidación del crédito. Autorizo (autorizamos) a CREDITOYA SAS para que el vencimiento de este pagare, debite de cualquier cuenta a mi (nuestro) favor, el valor de esta obligación, sus intereses, penalidades y gastos, el recibo de abonos parciales no implica novación y cualquier pago que hiciere (hiciéremos) se imputara primero a los gatos, después a intereses y penalidades y por último a capital, declaro (declaramos) excusada la presentación y la noticia de rechazo, los suscriptores de este pagare, hacen constar que la obligación de pagarlo subsiste en caso de cualquier modificación a lo estipulado, aunque se pacte con uno solo de los suscriptores, acepto (amos) que el pago, constarán en los registros sistematizados y comprobantes de CREDITOYA SAS.",
       threeParagraph: "El plazo establecido para la cancelación de las obligaciones incorporadas en el presente pagare, se concede en beneficio de ambas partes en tal virtud, CREDITOYA SAS no esta obligada a aceptar su pago del vencimiento acordado; sin embargo, en el evento en que se acepte el pago anticipado me (nos) obligo (obligamos) a reconocer y pagar a favor de CREDITOYA SAS, a titulo cláusula penal por incumplimiento la suma calculada a partir de las condiciones vigentes en la entidad sobre penalización de prepagos.",
-      fourParagraph: "En caso de muerte de los deudores, el acreedor queda con el derecho a exigir la totalidad del crédito a uno o cualquiera de los herederos, sin necesidad de demandarlos a todos. Así mismo, el acreedor podrá declarar vencido el plazo y exigible de una vez el pago total de la obligación, más lo intereses remunerados, la mora, los conceptos adicionales por seguros y demás accesorios, en los siguientes casos: a) mora o retardo en el pago de uno o más de los vencimientos de capital o intereses señalados o por concepto de prima de seguros respecto al deudor (deudores) y bienes dados en garantías; b) el incumplimiento de cualquiera otra obligación que directa o indirectamente tenga el deudor (deudores) para con el acreedor; c) si los bienes del deudor (deudores) son embargados o perseguidos judicial o administrativamente en ejercicio de cualquier acción; d) el giro de cheques sin provisión de fondos o el no pago de los mismos por partes del deudor, codeudores o avalistas; e) si el deudor (deudores), codeudores o avalistas fuere (n) admitido (s) a proceso concursal por concordato o liquidación forzosa, o incurra (n) en causal de disolución, o sea (n) sometido a liquidación forzosa, administrativa o hagan ofrecimiento de cesión de bienes a sus acreedores, f) si las garantías que se otorguen para amparar las obligaciones a cargo del (los) deudor (deudores) y a favor del acreedor, resultaren insuficientes o se depreciaren o deterioraren a juicio del acreedor o si fueran perseguidas judicialmente por terceros, para esto bastará simplemente la declaración escrita de CREDITOYA SAS en comunicación dirigida al deudor por carta o telegrama; comunicación que éste acepta como prueba suficiente y plena de incumplimiento; g) cuando el deudor enajene sin autorización de CREDITOYA SAS los bienes que garantizan las obligaciones; h) si los deudores dejaren de mantener asegurados los bienes que sirven de garantía a las obligaciones; i) si los deudores enajenaren sin autorización del acreedor los bienes que garantizan las obligaciones que por este pagaré se contraen; j) la entrega de títulos valores aceptados por el deudor y distintos al presente, respecto de los cuales se incumpla con el pago.",
+      fourParagraph: "En caso de muerte de los deudores, el acreedor queda con el derecho a exigir la totalidad del crédito a uno o cualquiera de los herederos, sin necesidad de demandarlos a todos. Así mismo, el acreedor podrá declarar vencido el plazo y exigible de una vez el pago total de la obligación, más lo intereses remunerados, la mora, los conceptos adicionales por seguros y demás accesorios, en los siguientes casos: a) mora o retardo en el pago de uno o más de los vencimientos de capital o intereses señalados o por concepto de prima de seguros respecto al deudor (deudores) y bienes dados en garantías; b) el incumplimiento de cualquiera otra obligación que directa o indirectamente tenga el deudor (deudores) para con el acreedor; c) si los bienes del deudor (deudores) son embargados o perseguidos judicial o administrativamente en ejercicio de cualquier acción; d) el giro de cheques sin provisión de fondos o el no pago de los mismos por partes del deudor, codeudores o avalistas; e) si el deudor (deudores), codeudores o avalistas fuere (n) admitido (s) a proceso concursal por concordato o liquidación forzosa, o incurra (n) en causal de disolución, o sea (n) sometido a liquidación forzosa, administrativa o hagan ofrecimiento de cesión de bienes a sus acreedores, f) si las garantías que se otorguen para amparar las obligaciones a cargo del (los) deudor (deudores) y a favor del acreedor, resultaren insuficientes o se depreciaren o deterioraren a juicio del acreedor o si fueran perseguidas judicialmente por terceros, para esto bastará simplemente la declaración escrita de CREDITOYA SAS en comunicación dirigida al deudor por carta o telegrama; comunicación que éste acepta como prueba suficiente y plena de incumplimiento; g) cuando el deudor enajene sin autorización de CREDITOYA SAS los bienes que garantizan las obligaciones; h) cuando los deudores dejaren de mantener asegurados los bienes que sirven de garantía a las obligaciones; i) si los deudores enajenaren sin autorización del acreedor los bienes que garantizan las obligaciones que por este pagaré se contraen; j) la entrega de títulos valores aceptados por el deudor y distintos al presente, respecto de los cuales se incumpla con el pago.",
       fiveParagraph: {
         publicFirstText: "La mera amplicacion del plazo no constituye novacion ni libera las garantias constituidas a favor de CREDITOYA SAS.",
         publicSecondText: "Para constancia se firma en Cali, el dia ",
@@ -406,10 +410,12 @@ export class PdfsService {
 
   /**
    * Generates and uploads multiple PDFs as a ZIP file to Google Cloud Storage
+   * and creates a database record linking them to a loan application
    */
   async generateAndUploadPdfs(
     documentsParams: Array<DocumentGenerationParams | PromissoryNoteGenerationParams>,
     userId: string,
+    loanId: string,
   ): Promise<{ success: boolean; public_name?: string }> {
     try {
       // Generate ZIP with PDFs
@@ -426,6 +432,25 @@ export class PdfsService {
         userId,
         name: 'documents',
         upId: uploadId,
+      });
+      
+      // Extract document types for record keeping
+      const documentTypes = documentsParams.map(param => {
+        if ('documentType' in param) {
+          return (param as any).documentType;
+        } else {
+          return 'general-document';
+        }
+      });
+      
+      // Create record in database
+      await this.prismaService.generatedDocuments.create({
+        data: {
+          loanId,
+          uploadId,
+          publicUrl: result.public_name,
+          documentTypes,
+        },
       });
       
       return result;

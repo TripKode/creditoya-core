@@ -58,10 +58,10 @@ model UsersIntranet {
 }
 
 model LoanApplication {
-    id                   String     @id @default(uuid()) @map("_id")
+    id                   String               @id @default(uuid()) @map("_id")
     userId               String
-    employeeId           String?    @default("Standby")
-    user                 User       @relation(fields: [userId], references: [id])
+    employeeId           String?              @default("Standby")
+    user                 User                 @relation(fields: [userId], references: [id])
     fisrt_flyer          String?
     upid_first_flayer    String?
     second_flyer         String?
@@ -73,7 +73,7 @@ model LoanApplication {
     cantity              String
     newCantity           String?
     newCantityOpt        Boolean?
-    bankSavingAccount    Boolean    @default(true)
+    bankSavingAccount    Boolean              @default(true)
     bankNumberAccount    String
     entity               String
     labor_card           String?
@@ -81,9 +81,21 @@ model LoanApplication {
     terms_and_conditions Boolean
     signature            String
     upSignatureId        String
-    status               StatusLoan @default(Pendiente)
-    created_at           DateTime   @default(now())
-    updated_at           DateTime   @updatedAt
+    status               StatusLoan           @default(Pendiente)
+    created_at           DateTime             @default(now())
+    updated_at           DateTime             @updatedAt
+    GeneratedDocuments   GeneratedDocuments[]
+}
+
+model GeneratedDocuments {
+    id            String          @id @default(uuid()) @map("_id")
+    loanId        String
+    loan          LoanApplication @relation(fields: [loanId], references: [id])
+    uploadId      String
+    publicUrl     String?
+    documentTypes String[]
+    created_at    DateTime        @default(now())
+    updated_at    DateTime        @updatedAt
 }
 
 model WhatsappSession {
