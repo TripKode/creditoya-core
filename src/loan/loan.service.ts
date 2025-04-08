@@ -1,5 +1,5 @@
 // src/modules/loan/services/loan.service.ts
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { RedisService } from 'src/redis/redis.service';
 import { LoanApplication, StatusLoan } from '@prisma/client';
@@ -11,6 +11,7 @@ import { PdfsService } from 'src/pdfs/pdfs.service';
 
 @Injectable()
 export class LoanService {
+  private logger = new Logger(LoanService.name);
   private readonly CACHE_TTL = 3600; // 1 hour in seconds
   private readonly LOAN_CACHE_PREFIX = 'loan:';
   private readonly LOANS_LIST_CACHE_KEY = 'loans:list';
@@ -71,10 +72,53 @@ export class LoanService {
       await this.invalidateLoanCache();
       await this.redisService.del(this.getUserLoansCacheKey(userId));
 
-      // Send email to user
+      // Generate PDFs before sending email
+      try {
+        // Fetch user details if needed for the PDFs
+        const user = await this.prisma.user.findUnique({
+          where: {
+            id: userId,
+          }, include: { Document: true },
+        });
+
+        // Prepare document parameters
+        const documentsParams = [
+          // Promissory note document
+          {
+            name: `${user?.names} ${user?.firstLastName} ${user?.secondLastName}`,
+            numberDocument: user?.Document[0]?.number ?? '',
+            signature: newLoan.signature, // Assuming this is stored in the user model
+            payQuantity: `$${newLoan.cantity.toLocaleString()}`,
+            dayPay: new Date().toLocaleDateString(), // Current date as the signing date
+            documentType: 'promissory-note',
+            userId: userId, // Add userId to satisfy the interface
+          },
+          // Blank promissory note instructions
+          {
+            name: `${user?.names} ${user?.firstLastName} ${user?.secondLastName}`,
+            numberDocument: user?.Document[0]?.number as string,
+            signature: newLoan.signature,
+            documentType: 'blank-instructions',
+            userId: userId, // Add userId to satisfy the interface
+          }
+        ];
+
+        // Generate and upload PDFs
+        await this.pdfService.generateAndUploadPdfs(
+          documentsParams,
+          userId,
+          newLoan.id
+        );
+      } catch (pdfError) {
+        // Log the error but continue with the process
+        this.logger.error('Error generating PDFs for loan application', pdfError);
+        // Consider whether to fail the entire process or just continue
+      }
+
+      // Send email to user with PDF information
       await this.mailService.sendMailByUser({
         subject: 'Solicitud de préstamo creada',
-        content: `Su solicitud de préstamo ha sido creada con éxito. ID: ${newLoan.id}`,
+        content: `Su solicitud de préstamo ha sido creada con éxito. ID: ${newLoan.id}. Los documentos necesarios han sido generados y están disponibles en su cuenta.`,
         addressee: newLoan.user.email,
       });
 
@@ -291,6 +335,9 @@ export class LoanService {
       ? `loans:pending:p${page}:s${pageSize}:d${documentNumber}`
       : `loans:pending:p${page}:s${pageSize}`;
 
+    // Limpiar el caché para asegurarnos de obtener datos frescos
+    await this.redisService.del(cacheKey);
+
     return this.redisService.getOrSet(
       cacheKey,
       async () => {
@@ -299,7 +346,7 @@ export class LoanService {
         try {
           // Build the filter object
           const where: any = {
-            status: StatusLoan.Pendiente,
+            status: StatusLoan.Pendiente, // Asegúrate de que esto es correcto
           };
 
           // If document number is provided, find users with that document first
@@ -336,6 +383,9 @@ export class LoanService {
               created_at: 'desc',
             },
           });
+
+          // Para depuración - verifica que los préstamos tengan el estado correcto
+          console.log('Loans after DB query:', validLoans.map(loan => ({ id: loan.id, status: loan.status })));
 
           // Filter out loans with null users first
           const loansWithValidUsers = validLoans.filter(loan => loan.user !== null);
@@ -377,302 +427,172 @@ export class LoanService {
     );
   }
 
-  // Método para obtener las solicitudes de préstamo con estado "Aplazado"
+  // Improved service method to handle all loan types with pagination
+  async getLoans(
+    status: StatusLoan | null = null,
+    page: number = 1,
+    pageSize: number = 10,
+    searchQuery?: string,
+    options: {
+      withNewCantity?: boolean,
+      withNewCantityOpt?: boolean | null
+    } = {}
+  ): Promise<{ data: LoanApplication[]; total: number }> {
+    // Create a specific cache key based on all parameters
+    const searchPart = searchQuery ? `:q${searchQuery}` : '';
+    const cacheKey = `loans:${status || 'all'}:${options.withNewCantity ? 'newcantity' : ''}:p${page}:s${pageSize}${searchPart}`;
+
+    return this.redisService.getOrSet(
+      cacheKey,
+      async () => {
+        const skip = (page - 1) * pageSize;
+
+        try {
+          // Build the base where filter
+          const where: any = {};
+
+          // Add status filter if provided
+          if (status) {
+            where.status = status;
+          }
+
+          // Add newCantity filters if requested
+          if (options.withNewCantity !== undefined) {
+            where.newCantity = options.withNewCantity ? { not: null } : null;
+          }
+
+          // Add newCantityOpt filters if requested
+          if (options.withNewCantityOpt !== undefined) {
+            where.newCantityOpt = options.withNewCantityOpt;
+          }
+
+          // Handle search query - find users matching the search criteria
+          let userIdsToInclude: string[] = [];
+          if (searchQuery) {
+            // First search for users with matching document number
+            const usersWithMatchingDocument = await this.prisma.user.findMany({
+              where: {
+                Document: {
+                  some: {
+                    number: { contains: searchQuery, mode: 'insensitive' }
+                  }
+                }
+              },
+              select: { id: true }
+            });
+
+            // Then search for users with matching name components
+            const usersWithMatchingName = await this.prisma.user.findMany({
+              where: {
+                OR: [
+                  { names: { contains: searchQuery, mode: 'insensitive' } },
+                  { firstLastName: { contains: searchQuery, mode: 'insensitive' } },
+                  { secondLastName: { contains: searchQuery, mode: 'insensitive' } }
+                ]
+              },
+              select: { id: true }
+            });
+
+            // Combine user IDs from both searches
+            userIdsToInclude = [
+              ...usersWithMatchingDocument.map(u => u.id),
+              ...usersWithMatchingName.map(u => u.id)
+            ];
+
+            // Also include loans whose ID matches the search query
+            const loanIdCondition = {
+              id: { contains: searchQuery, mode: 'insensitive' }
+            };
+
+            if (userIdsToInclude.length > 0) {
+              where.OR = [
+                { userId: { in: userIdsToInclude } },
+                loanIdCondition
+              ];
+            } else {
+              where.OR = [loanIdCondition];
+            }
+          }
+
+          // Count total loans matching criteria first (for accurate pagination)
+          const totalLoans = await this.prisma.loanApplication.count({
+            where
+          });
+
+          // Get loan applications with pagination applied directly in the query
+          const loans = await this.prisma.loanApplication.findMany({
+            where,
+            include: {
+              user: true
+            },
+            orderBy: {
+              created_at: 'desc',
+            },
+            skip,
+            take: pageSize
+          });
+
+          // Filter out loans with null users
+          const loansWithValidUsers = loans.filter(loan => loan.user !== null);
+
+          // Get document information for each user
+          if (loansWithValidUsers.length > 0) {
+            const userIds = loansWithValidUsers.map(loan => loan.userId);
+
+            const usersWithDocuments = await this.prisma.user.findMany({
+              where: {
+                id: { in: userIds }
+              },
+              include: {
+                Document: true
+              }
+            });
+
+            // Map users with their documents back to the loan data
+            for (const loan of loansWithValidUsers) {
+              const userWithDocs = usersWithDocuments.find(u => u.id === loan.userId);
+              if (userWithDocs && userWithDocs.Document) {
+                (loan.user as any).Document = userWithDocs.Document;
+              }
+            }
+          }
+
+          return { data: loansWithValidUsers, total: totalLoans };
+        } catch (error) {
+          console.error('Error fetching loans:', error);
+          throw new BadRequestException(`Error al obtener las solicitudes de préstamo: ${error.message}`);
+        }
+      },
+      this.CACHE_TTL
+    );
+  }
+
+  // Maintain backward compatibility with wrapper methods
   async getDeferredLoans(
     page: number = 1,
-    pageSize: number = 5,
-    documentNumber?: string
+    pageSize: number = 10,
+    searchQuery?: string
   ): Promise<{ data: LoanApplication[]; total: number }> {
-    const cacheKey = documentNumber
-      ? `loans:deferred:p${page}:s${pageSize}:d${documentNumber}`
-      : `loans:deferred:p${page}:s${pageSize}`;
-
-    return this.redisService.getOrSet(
-      cacheKey,
-      async () => {
-        const skip = (page - 1) * pageSize;
-
-        try {
-          // Build the filter object
-          const where: any = {
-            status: StatusLoan.Aplazado,
-          };
-
-          // If document number is provided, find users with that document first
-          if (documentNumber) {
-            const usersWithDocument = await this.prisma.user.findMany({
-              where: {
-                Document: {
-                  some: {
-                    number: { equals: documentNumber, mode: 'insensitive' }
-                  }
-                }
-              },
-              select: { id: true }
-            });
-
-            if (usersWithDocument.length > 0) {
-              // Apply filter for those specific users
-              where.userId = {
-                in: usersWithDocument.map(u => u.id)
-              };
-            } else {
-              // Si no hay usuarios con ese documento, devolvemos un conjunto vacío
-              return { data: [], total: 0 };
-            }
-          }
-
-          // First, find all loans with valid user references
-          const validLoans = await this.prisma.loanApplication.findMany({
-            where,
-            include: {
-              user: true
-            },
-            orderBy: {
-              created_at: 'desc',
-            },
-          });
-
-          // Filter out loans with null users
-          const loansWithValidUsers = validLoans.filter(loan => loan.user !== null);
-          const total = loansWithValidUsers.length;
-
-          // Apply pagination manually
-          const paginatedData = loansWithValidUsers.slice(skip, skip + pageSize);
-
-          // Get document information for each user if there are any loans
-          if (paginatedData.length > 0) {
-            const userIds = paginatedData.map(loan => loan.userId);
-
-            const usersWithDocuments = await this.prisma.user.findMany({
-              where: {
-                id: { in: userIds }
-              },
-              include: {
-                Document: true
-              }
-            });
-
-            // Map users with their documents back to the loan data
-            for (const loan of paginatedData) {
-              const userWithDocs = usersWithDocuments.find(u => u.id === loan.userId);
-              if (userWithDocs && userWithDocs.Document) {
-                // Use type assertion to avoid TypeScript issues
-                (loan.user as any).Document = userWithDocs.Document;
-              }
-            }
-          }
-
-          return { data: paginatedData, total };
-        } catch (error) {
-          console.error('Error fetching deferred loans:', error);
-          throw new BadRequestException('Error al obtener las solicitudes de préstamo aplazadas');
-        }
-      },
-      this.CACHE_TTL
-    );
+    return this.getLoans(StatusLoan.Aplazado, page, pageSize, searchQuery);
   }
 
-  // Método para obtener las solicitudes de préstamo con estado "Aprobado"
   async getApprovedLoans(
     page: number = 1,
-    pageSize: number = 5,
-    documentNumber?: string
+    pageSize: number = 10,
+    searchQuery?: string
   ): Promise<{ data: LoanApplication[]; total: number }> {
-    const cacheKey = documentNumber
-      ? `loans:approved:p${page}:s${pageSize}:d${documentNumber}`
-      : `loans:approved:p${page}:s${pageSize}`;
-
-    return this.redisService.getOrSet(
-      cacheKey,
-      async () => {
-        const skip = (page - 1) * pageSize;
-
-        try {
-          // Log para depuración
-          console.log(`Buscando préstamos aprobados. Page: ${page}, PageSize: ${pageSize}, DocNumber: ${documentNumber || 'none'}`);
-
-          // Build the filter object
-          const where: any = {
-            status: StatusLoan.Aprobado,
-          };
-
-          // If document number is provided, find users with that document first
-          if (documentNumber) {
-            console.log(`Filtrando por número de documento: ${documentNumber}`);
-
-            const usersWithDocument = await this.prisma.user.findMany({
-              where: {
-                Document: {
-                  some: {
-                    number: { equals: documentNumber, mode: 'insensitive' }
-                  }
-                }
-              },
-              select: { id: true }
-            });
-
-            console.log(`Encontrados ${usersWithDocument.length} usuarios con ese documento`);
-
-            if (usersWithDocument.length > 0) {
-              // Apply filter for those specific users
-              where.userId = {
-                in: usersWithDocument.map(u => u.id)
-              };
-            } else {
-              // Si no hay usuarios con ese documento, devolvemos un conjunto vacío
-              console.log('No se encontraron usuarios con ese documento, retornando conjunto vacío');
-              return { data: [], total: 0 };
-            }
-          }
-
-          // Get loan applications with valid users first
-          const validLoans = await this.prisma.loanApplication.findMany({
-            where,
-            include: {
-              user: true
-            },
-            orderBy: {
-              created_at: 'desc',
-            },
-          });
-
-          // Filter out loans with null users
-          const loansWithValidUsers = validLoans.filter(loan => loan.user !== null);
-          const total = loansWithValidUsers.length;
-
-          // Apply pagination manually
-          const paginatedData = loansWithValidUsers.slice(skip, skip + pageSize);
-
-          // Get document information for each user if there are any loans
-          if (paginatedData.length > 0) {
-            const userIds = paginatedData.map(loan => loan.userId);
-
-            const usersWithDocuments = await this.prisma.user.findMany({
-              where: {
-                id: { in: userIds }
-              },
-              include: {
-                Document: true
-              }
-            });
-
-            // Map users with their documents back to the loan data
-            for (const loan of paginatedData) {
-              const userWithDocs = usersWithDocuments.find(u => u.id === loan.userId);
-              if (userWithDocs && userWithDocs.Document) {
-                // Use type assertion to avoid TypeScript issues
-                (loan.user as any).Document = userWithDocs.Document;
-              }
-            }
-          }
-
-          console.log(`Encontrados ${paginatedData.length} préstamos de un total de ${total}`);
-          return { data: paginatedData, total };
-        } catch (error) {
-          console.error('Error fetching approved loans:', error);
-          throw new BadRequestException('Error al obtener las solicitudes de préstamo aprobadas');
-        }
-      },
-      this.CACHE_TTL
-    );
+    return this.getLoans(StatusLoan.Aprobado, page, pageSize, searchQuery);
   }
 
-  // Método para obtener las solicitudes de préstamo con newCantity definido y newCantityOpt nulo
   async getLoansWithDefinedNewCantity(
     page: number = 1,
-    pageSize: number = 5,
-    documentNumber?: string
+    pageSize: number = 10,
+    searchQuery?: string
   ): Promise<{ data: LoanApplication[]; total: number }> {
-    const cacheKey = documentNumber
-      ? `loans:newcantity:p${page}:s${pageSize}:d${documentNumber}`
-      : `loans:newcantity:p${page}:s${pageSize}`;
-
-    return this.redisService.getOrSet(
-      cacheKey,
-      async () => {
-        const skip = (page - 1) * pageSize;
-
-        try {
-          // Construir el objeto de filtros
-          const where: any = {
-            newCantity: { not: null }, // newCantity debe estar definido
-            newCantityOpt: null, // newCantityOpt debe ser nulo
-          };
-
-          // Si se proporciona un número de documento, encontrar usuarios con ese documento primero
-          if (documentNumber) {
-            const usersWithDocument = await this.prisma.user.findMany({
-              where: {
-                Document: {
-                  some: {
-                    number: { equals: documentNumber, mode: 'insensitive' }
-                  }
-                }
-              },
-              select: { id: true }
-            });
-
-            if (usersWithDocument.length > 0) {
-              // Apply filter for those specific users
-              where.userId = {
-                in: usersWithDocument.map(u => u.id)
-              };
-            } else {
-              // Si no hay usuarios con ese documento, devolvemos un conjunto vacío
-              return { data: [], total: 0 };
-            }
-          }
-
-          // Get loan applications with valid users first
-          const validLoans = await this.prisma.loanApplication.findMany({
-            where,
-            include: {
-              user: true
-            },
-            orderBy: {
-              created_at: 'desc',
-            },
-          });
-
-          // Filter out loans with null users
-          const loansWithValidUsers = validLoans.filter(loan => loan.user !== null);
-          const total = loansWithValidUsers.length;
-
-          // Apply pagination manually
-          const paginatedData = loansWithValidUsers.slice(skip, skip + pageSize);
-
-          // Get document information for each user if there are any loans
-          if (paginatedData.length > 0) {
-            const userIds = paginatedData.map(loan => loan.userId);
-
-            const usersWithDocuments = await this.prisma.user.findMany({
-              where: {
-                id: { in: userIds }
-              },
-              include: {
-                Document: true
-              }
-            });
-
-            // Map users with their documents back to the loan data
-            for (const loan of paginatedData) {
-              const userWithDocs = usersWithDocuments.find(u => u.id === loan.userId);
-              if (userWithDocs && userWithDocs.Document) {
-                // Use type assertion to avoid TypeScript issues
-                (loan.user as any).Document = userWithDocs.Document;
-              }
-            }
-          }
-
-          return { data: paginatedData, total };
-        } catch (error) {
-          console.error('Error fetching loans with defined new cantity:', error);
-          throw new BadRequestException('Error al obtener las solicitudes con nueva cantidad definida');
-        }
-      },
-      this.CACHE_TTL
-    );
+    return this.getLoans(null, page, pageSize, searchQuery, {
+      withNewCantity: true,
+      withNewCantityOpt: null
+    });
   }
 
   // Método para obtener una solicitud de préstamo por el ID del usuario
