@@ -1,9 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { Storage } from '@google-cloud/storage';
-import { exec } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as zlib from 'zlib';
 import { promisify } from 'util';
 import DecryptJson from 'handlers/decryptJson';
 import { PrismaService } from '../prisma/prisma.service';
@@ -14,7 +14,10 @@ import {
   ListBackupsResponse
 } from './dto/create-backup.dto';
 
-const execPromise = promisify(exec);
+const gzipPromise = promisify(zlib.gzip);
+const gunzipPromise = promisify(zlib.gunzip);
+const writeFilePromise = promisify(fs.writeFile);
+const readFilePromise = promisify(fs.readFile);
 
 @Injectable()
 export class BackupService {
@@ -69,7 +72,7 @@ export class BackupService {
       if (!exists) {
         this.logger.log(`Bucket ${bucketName} does not exist. Creating it now...`);
         await this.storage.createBucket(bucketName, {
-          location: 'us-central1', // Cambiar según tu preferencia
+          location: 'us-central1',
           storageClass: 'STANDARD',
         });
         this.logger.log(`Bucket ${bucketName} created successfully`);
@@ -83,18 +86,14 @@ export class BackupService {
   }
 
   /**
-   * Ejecuta un backup de la base de datos MongoDB cada mes
+   * Ejecuta un backup de la base de datos MongoDB usando Prisma cada mes
    * Se ejecuta el primer día de cada mes a las 2:00 AM
    */
   @Cron('0 2 1 * *') // First day of the month at 2:00 AM
   async runMonthlyBackup(): Promise<BackupResponse> {
-    this.logger.log('Iniciando backup mensual de la base de datos MongoDB...');
+    this.logger.log('Iniciando backup mensual de la base de datos MongoDB con Prisma...');
 
     try {
-      // Verificar conexión a la base de datos
-      await this.prismaService.$connect();
-      this.logger.log('Conexión a la base de datos verificada');
-
       // Crear directorio temporal para el backup si no existe
       const tempDir = path.join(process.cwd(), 'temp_backups');
       if (!fs.existsSync(tempDir)) {
@@ -112,25 +111,53 @@ export class BackupService {
       const backupFilePath = path.join(tempDir, backupFileName);
       const storageDestinationPath = `database_backups/${year}/${month}/${backupFileName}`;
 
-      // Obtener URI de MongoDB desde las variables de entorno
-      const mongoUri = process.env.MONGODB_URI;
-      if (!mongoUri) {
-        throw new Error('MONGODB_URI no está definido en las variables de entorno');
-      }
+      // Extraer el nombre de la base de datos desde la URL de conexión
+      const mongoUrl = process.env.MONGODB_URI || process.env.DATABASE_URL || '';
+      const databaseName = mongoUrl ? new URL(mongoUrl).pathname.substring(1) : 'unknown_database';
 
-      // Ejecutar mongodump para crear el backup
-      this.logger.log('Ejecutando mongodump...');
+      // Ejecutar backup utilizando las funciones nativas de Prisma para MongoDB
+      this.logger.log('Exportando datos con Prisma para MongoDB...');
       try {
-        await execPromise(
-          `mongodump --uri="${mongoUri}" --gzip --archive="${backupFilePath}"`,
-        );
+        // Obtener todos los modelos/colecciones desde MongoDB
+        const collections = await this.getMongoCollections();
+
+        // Hacer una consulta para cada colección y guardarlos en un objeto
+        const backupData: Record<string, any[]> = {};
+
+        for (const collection of collections) {
+          this.logger.log(`Exportando datos de la colección: ${collection}`);
+
+          const result = await this.prismaService.$runCommandRaw({
+            find: collection,
+            limit: 0
+          });
+
+          let data: any[] = [];
+          // Usar una verificación más segura
+          if (result && typeof result === 'object' && 'cursor' in result &&
+            result.cursor && typeof result.cursor === 'object' && 'firstBatch' in result.cursor &&
+            Array.isArray(result.cursor.firstBatch)) {
+            data = result.cursor.firstBatch as any[];
+          }
+
+          backupData[collection] = data;
+          this.logger.log(`Exportados ${data.length} documentos de la colección ${collection}`);
+        }
+
+        // Convertir a JSON y comprimir
+        const jsonData = JSON.stringify(backupData, null, 2);
+        const compressedData = await gzipPromise(Buffer.from(jsonData, 'utf-8'));
+
+        // Guardar en archivo temporal
+        await writeFilePromise(backupFilePath, compressedData);
+
+        this.logger.log(`Backup generado exitosamente: ${backupFilePath}`);
       } catch (dumpError) {
-        this.logger.error('Error en mongodump:', dumpError);
-        throw new Error(`Error al crear el backup de MongoDB: ${dumpError.message}`);
+        this.logger.error('Error al crear el backup con Prisma:', dumpError);
+        throw new Error(`Error al exportar datos: ${dumpError.message}`);
       }
 
       // Subir archivo de backup a Google Cloud Storage
-      this.logger.log(`Backup creado exitosamente: ${backupFilePath}`);
       this.logger.log('Subiendo backup a Google Cloud Storage...');
 
       const storage = await this.getStorageInstance();
@@ -144,8 +171,8 @@ export class BackupService {
             metadata: {
               contentType: 'application/gzip',
               metadata: {
-                database: new URL(mongoUri).pathname.substring(1), // Extraer nombre de la DB
-                type: 'full-backup',
+                database: databaseName,
+                type: 'prisma-mongodb-backup',
                 createdBy: 'automated-system'
               }
             },
@@ -183,6 +210,42 @@ export class BackupService {
         success: false,
         message: error instanceof Error ? error.message : 'Error desconocido durante el backup',
       };
+    }
+  }
+
+  /**
+   * Obtiene las colecciones disponibles en MongoDB
+   * Utiliza el acceso directo al cliente MongoDB subyacente de Prisma
+   */
+  private async getMongoCollections(): Promise<string[]> {
+    try {
+      // Acceder al cliente MongoDB directamente usando $runCommandRaw
+      const result = await this.prismaService.$runCommandRaw({
+        listCollections: 1,
+      });
+
+      // Extraer nombres de colecciones del resultado
+      if (result && Array.isArray((result as any).cursor?.firstBatch)) {
+        return (result as { cursor: { firstBatch: { name: string }[] } }).cursor.firstBatch.map(col => col.name);
+      }
+
+      throw new Error('No se pudo obtener la lista de colecciones');
+    } catch (error) {
+      this.logger.error('Error al obtener las colecciones de MongoDB:', error);
+
+      // Plan alternativo: lista de modelos de tu schema.prisma
+      this.logger.warn('Usando lista de colecciones predefinida como último recurso');
+
+      // Esta lista debe coincidir con tus modelos en schema.prisma
+      return [
+        'User',
+        'Document',
+        'UsersIntranet',
+        'LoanApplication',
+        'GeneratedDocuments',
+        'WhatsappSession',
+        'ReportIssue'
+      ].map(model => model.toLowerCase());
     }
   }
 
@@ -349,28 +412,56 @@ export class BackupService {
         };
       }
 
-      // Obtener URI de MongoDB
-      const mongoUri = process.env.MONGODB_URI;
-      if (!mongoUri) {
-        fs.unlinkSync(localFilePath); // Limpiar archivo temporal
-        return {
-          success: false,
-          message: 'MONGODB_URI no está definido en las variables de entorno'
-        };
-      }
+      // Descomprimir y leer el archivo
+      const compressedData = await readFilePromise(localFilePath);
+      const jsonData = await gunzipPromise(compressedData);
+      const backupData = JSON.parse(jsonData.toString('utf8'));
 
-      // Cerrar conexión de Prisma antes de restaurar
+      // Cerrar conexión antes de restaurar
       this.logger.log('Cerrando conexión de Prisma antes de la restauración...');
       await this.prismaService.$disconnect();
 
-      // Ejecutar mongorestore para restaurar el backup
-      this.logger.log('Ejecutando mongorestore...');
       try {
-        await execPromise(
-          `mongorestore --uri="${mongoUri}" --gzip --archive="${localFilePath}" --drop`,
-        );
+        // Establecer nueva conexión
+        await this.prismaService.$connect();
+
+        // Restaurar datos para cada colección
+        await this.prismaService.$transaction(async (prisma) => {
+          // @ts-ignore - Accedemos al cliente MongoDB subyacente
+          const db = prisma._baseDmmf.containerEngine.client.db();
+
+          // Obtener colecciones del backup
+          const collections = Object.keys(backupData);
+
+          for (const collection of collections) {
+            this.logger.log(`Restaurando datos para la colección: ${collection}`);
+
+            // Eliminar datos existentes
+            await db.collection(collection).deleteMany({});
+
+            // Insertar datos del backup
+            const collectionData = backupData[collection];
+            if (Array.isArray(collectionData) && collectionData.length > 0) {
+              // Si hay muchos documentos, dividir en lotes para mejorar rendimiento
+              const batchSize = 1000;
+              for (let i = 0; i < collectionData.length; i += batchSize) {
+                const batch = collectionData.slice(i, i + batchSize);
+                if (batch.length > 0) {
+                  await db.collection(collection).insertMany(batch, { ordered: false });
+                }
+              }
+
+              this.logger.log(`Insertados ${collectionData.length} documentos en ${collection}`);
+            }
+          }
+        }, {
+          // Opciones de transacción para MongoDB - máxima duración
+          maxWait: 60000, // 60 segundos
+          timeout: 120000 // 120 segundos
+        });
+
       } catch (restoreError) {
-        this.logger.error('Error en mongorestore:', restoreError);
+        this.logger.error('Error durante la restauración de datos:', restoreError);
 
         // Intentar reconectar Prisma después del error
         try {
@@ -379,16 +470,9 @@ export class BackupService {
           this.logger.error('Error al reconectar Prisma después del fallo:', connError);
         }
 
-        // Limpiar archivo temporal
-        try {
-          fs.unlinkSync(localFilePath);
-        } catch (unlinkError) {
-          this.logger.warn('No se pudo eliminar el archivo temporal:', unlinkError);
-        }
-
         return {
           success: false,
-          message: `Error al restaurar la base de datos: ${restoreError.message}`
+          message: `Error al restaurar la base de datos: ${restoreError instanceof Error ? restoreError.message : 'Error desconocido'}`
         };
       }
 
@@ -398,17 +482,6 @@ export class BackupService {
       } catch (unlinkError) {
         this.logger.warn('No se pudo eliminar el archivo temporal:', unlinkError);
         // Continuamos aunque no se pueda borrar el archivo
-      }
-
-      // Reconectar Prisma después de la restauración
-      try {
-        await this.prismaService.$connect();
-      } catch (connError) {
-        this.logger.error('Error al reconectar Prisma:', connError);
-        return {
-          success: false,
-          message: `La base de datos fue restaurada pero hubo un error al reconectar Prisma: ${connError instanceof Error ? connError.message : 'Error desconocido'}`
-        };
       }
 
       return {
