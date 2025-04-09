@@ -5,33 +5,81 @@ import { exec } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { promisify } from 'util';
-import credential from '../../jsons/cloud.json';
 import DecryptJson from 'handlers/decryptJson';
 import { PrismaService } from '../prisma/prisma.service';
-import { BackupInfo, BackupResponse, DownloadUrlResponse, ListBackupsResponse } from './dto/create-backup.dto';
+import {
+  BackupInfo,
+  BackupResponse,
+  DownloadUrlResponse,
+  ListBackupsResponse
+} from './dto/create-backup.dto';
 
 const execPromise = promisify(exec);
 
 @Injectable()
 export class BackupService {
   private readonly logger = new Logger(BackupService.name);
+  private storage: Storage | null = null;
 
   constructor(private readonly prismaService: PrismaService) { }
 
   /**
    * Crea una instancia de Storage utilizando las credenciales desencriptadas.
+   * Implementa un patrón singleton para evitar crear múltiples instancias.
    */
-  private getStorageInstance(): Storage {
-    const EnCredential = credential.k;
+  private async getStorageInstance(): Promise<Storage> {
+    if (this.storage) {
+      return this.storage;
+    }
+
+    // Use path.resolve to get an absolute path to the credentials file
+    const credentialPath = path.resolve(process.cwd(), 'jsons', 'cloud.json');
+
+    // Load the credential file dynamically
+    let credentialObj: { k: string } | null;
+    try {
+      credentialObj = JSON.parse(fs.readFileSync(credentialPath, 'utf8'));
+      this.logger.log('Credential object loaded successfully');
+    } catch (error) {
+      this.logger.error(`Failed to load credential file from ${credentialPath}`, error);
+      throw new Error('Cloud credentials file could not be loaded');
+    }
+
+    // Check if the credential has the expected structure
+    if (!credentialObj || !credentialObj.k) {
+      this.logger.error('Cloud credentials are missing the required "k" property');
+      throw new Error('Invalid cloud credential format - missing "k" property');
+    }
+
+    const EnCredential = credentialObj.k;
     const decryptedCredentials = DecryptJson({
       encryptedData: EnCredential,
       password: process.env.KEY_DECRYPT as string,
     });
 
-    return new Storage({
+    this.storage = new Storage({
       projectId: process.env.PROJECT_ID_GOOGLE,
       credentials: decryptedCredentials,
     });
+
+    // Check if bucket exists and create it if it doesn't
+    const bucketName = process.env.NAME_BUCKET_GOOGLE_STORAGE as string;
+    try {
+      const [exists] = await this.storage.bucket(bucketName).exists();
+      if (!exists) {
+        this.logger.log(`Bucket ${bucketName} does not exist. Creating it now...`);
+        await this.storage.createBucket(bucketName, {
+          location: 'us-central1', // Cambiar según tu preferencia
+          storageClass: 'STANDARD',
+        });
+        this.logger.log(`Bucket ${bucketName} created successfully`);
+      }
+    } catch (error) {
+      this.logger.error(`Error checking/creating bucket ${bucketName}:`, error);
+      throw new Error(`Failed to access or create storage bucket: ${bucketName}`);
+    }
+
+    return this.storage;
   }
 
   /**
@@ -72,39 +120,57 @@ export class BackupService {
 
       // Ejecutar mongodump para crear el backup
       this.logger.log('Ejecutando mongodump...');
-      await execPromise(
-        `mongodump --uri="${mongoUri}" --gzip --archive="${backupFilePath}"`,
-      );
+      try {
+        await execPromise(
+          `mongodump --uri="${mongoUri}" --gzip --archive="${backupFilePath}"`,
+        );
+      } catch (dumpError) {
+        this.logger.error('Error en mongodump:', dumpError);
+        throw new Error(`Error al crear el backup de MongoDB: ${dumpError.message}`);
+      }
 
       // Subir archivo de backup a Google Cloud Storage
       this.logger.log(`Backup creado exitosamente: ${backupFilePath}`);
       this.logger.log('Subiendo backup a Google Cloud Storage...');
 
-      const storage = this.getStorageInstance();
+      const storage = await this.getStorageInstance();
       const bucketName = process.env.NAME_BUCKET_GOOGLE_STORAGE as string;
 
-      await storage
-        .bucket(bucketName)
-        .upload(backupFilePath, {
-          destination: storageDestinationPath,
-          metadata: {
-            contentType: 'application/gzip',
+      try {
+        await storage
+          .bucket(bucketName)
+          .upload(backupFilePath, {
+            destination: storageDestinationPath,
             metadata: {
-              database: new URL(mongoUri).pathname.substring(1), // Extraer nombre de la DB
-              type: 'full-backup',
-              createdBy: 'automated-system'
-            }
-          },
-        });
+              contentType: 'application/gzip',
+              metadata: {
+                database: new URL(mongoUri).pathname.substring(1), // Extraer nombre de la DB
+                type: 'full-backup',
+                createdBy: 'automated-system'
+              }
+            },
+          });
+      } catch (uploadError) {
+        this.logger.error('Error al subir el backup a Google Cloud Storage:', uploadError);
+        throw new Error(`Error al subir el backup: ${uploadError.message}`);
+      }
 
       this.logger.log(`Backup subido exitosamente a gs://${bucketName}/${storageDestinationPath}`);
 
       // Limpiar archivo temporal
-      fs.unlinkSync(backupFilePath);
-      this.logger.log('Archivo temporal eliminado');
+      try {
+        fs.unlinkSync(backupFilePath);
+        this.logger.log('Archivo temporal eliminado');
+      } catch (unlinkError) {
+        this.logger.warn('No se pudo eliminar el archivo temporal:', unlinkError);
+        // Continuamos con la ejecución aunque no se pueda borrar el archivo temporal
+      }
 
-      // Implementar retención de backups (opcional): eliminar backups más antiguos de 1 año
-      await this.cleanOldBackups();
+      // Implementar retención de backups: eliminar backups más antiguos de 1 año
+      await this.cleanOldBackups().catch(error => {
+        this.logger.warn('Error durante la limpieza de backups antiguos:', error);
+        // Continuamos con la ejecución aunque falle la limpieza
+      });
 
       return {
         success: true,
@@ -113,7 +179,10 @@ export class BackupService {
       };
     } catch (error) {
       this.logger.error('Error durante el proceso de backup:', error);
-      throw error;
+      return {
+        success: false,
+        message: error instanceof Error ? error.message : 'Error desconocido durante el backup',
+      };
     }
   }
 
@@ -122,7 +191,7 @@ export class BackupService {
    */
   private async cleanOldBackups(): Promise<void> {
     try {
-      const storage = this.getStorageInstance();
+      const storage = await this.getStorageInstance();
       const bucketName = process.env.NAME_BUCKET_GOOGLE_STORAGE as string;
       const oneYearAgo = new Date();
       oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
@@ -134,20 +203,28 @@ export class BackupService {
         .bucket(bucketName)
         .getFiles({ prefix: 'database_backups/' });
 
+      const deletePromises: Promise<void>[] = [];
       for (const file of files) {
-        const metadata = await file.getMetadata();
-        const createTime = new Date(metadata[0].timeCreated ?? 0);
+        const [metadata] = await file.getMetadata();
+        const createTime = new Date(metadata.timeCreated ?? 0);
 
         // Eliminar si es más antiguo que un año
         if (createTime < oneYearAgo) {
           this.logger.log(`Eliminando backup antiguo: ${file.name}`);
-          await file.delete();
+          deletePromises.push(file.delete().then(() => undefined));
         }
       }
 
-      this.logger.log('Limpieza de backups antiguos completada');
+      // Esperar a que todas las eliminaciones se completen
+      if (deletePromises.length > 0) {
+        await Promise.all(deletePromises);
+        this.logger.log(`Se eliminaron ${deletePromises.length} backups antiguos`);
+      } else {
+        this.logger.log('No se encontraron backups antiguos para eliminar');
+      }
     } catch (error) {
       this.logger.error('Error al limpiar backups antiguos:', error);
+      throw error; // Reenviar el error para manejo superior
     }
   }
 
@@ -156,8 +233,7 @@ export class BackupService {
    */
   async createBackupNow(): Promise<BackupResponse> {
     try {
-      const result = await this.runMonthlyBackup();
-      return result;
+      return await this.runMonthlyBackup();
     } catch (error) {
       return {
         success: false,
@@ -171,7 +247,7 @@ export class BackupService {
    */
   async listAvailableBackups(): Promise<ListBackupsResponse> {
     try {
-      const storage = this.getStorageInstance();
+      const storage = await this.getStorageInstance();
       const bucketName = process.env.NAME_BUCKET_GOOGLE_STORAGE as string;
 
       const [files] = await storage
@@ -188,10 +264,12 @@ export class BackupService {
 
       const backups: BackupInfo[] = await Promise.all(files.map(async (file) => {
         const [metadata] = await file.getMetadata();
+        const sizeInMB = (parseInt(String(metadata.size || '0')) / (1024 * 1024)).toFixed(2);
+
         return {
           name: file.name,
-          timeCreated: metadata.timeCreated || 'Unknown', // Provide a default value
-          size: (parseInt(String(metadata.size || '0')) / (1024 * 1024)).toFixed(2) + ' MB',
+          timeCreated: metadata.timeCreated || 'Unknown',
+          size: `${sizeInMB} MB`,
         };
       }));
 
@@ -202,7 +280,8 @@ export class BackupService {
 
       return {
         success: true,
-        backups
+        backups,
+        message: `Se encontraron ${backups.length} backups disponibles`
       };
     } catch (error) {
       this.logger.error('Error al listar backups:', error);
@@ -218,6 +297,13 @@ export class BackupService {
    * @param backupPath Ruta del archivo de backup en Google Cloud Storage
    */
   async restoreFromBackup(backupPath: string): Promise<BackupResponse> {
+    if (!backupPath) {
+      return {
+        success: false,
+        message: 'Ruta de backup no especificada'
+      };
+    }
+
     try {
       this.logger.log(`Iniciando restauración desde backup: ${backupPath}`);
 
@@ -228,20 +314,49 @@ export class BackupService {
       }
 
       const localFilePath = path.join(tempDir, path.basename(backupPath));
-      const storage = this.getStorageInstance();
+      const storage = await this.getStorageInstance();
       const bucketName = process.env.NAME_BUCKET_GOOGLE_STORAGE as string;
+
+      // Verificar si el archivo existe en el bucket
+      try {
+        const [exists] = await storage.bucket(bucketName).file(backupPath).exists();
+        if (!exists) {
+          return {
+            success: false,
+            message: `El archivo de backup no existe en gs://${bucketName}/${backupPath}`
+          };
+        }
+      } catch (checkError) {
+        this.logger.error('Error al verificar existencia del backup:', checkError);
+        return {
+          success: false,
+          message: `Error al verificar el archivo de backup: ${checkError instanceof Error ? checkError.message : 'Error desconocido'}`
+        };
+      }
 
       // Descargar archivo de backup
       this.logger.log('Descargando archivo de backup de Google Cloud Storage...');
-      await storage
-        .bucket(bucketName)
-        .file(backupPath)
-        .download({ destination: localFilePath });
+      try {
+        await storage
+          .bucket(bucketName)
+          .file(backupPath)
+          .download({ destination: localFilePath });
+      } catch (downloadError) {
+        this.logger.error('Error al descargar el archivo de backup:', downloadError);
+        return {
+          success: false,
+          message: `Error al descargar el backup: ${downloadError instanceof Error ? downloadError.message : 'Error desconocido'}`
+        };
+      }
 
       // Obtener URI de MongoDB
       const mongoUri = process.env.MONGODB_URI;
       if (!mongoUri) {
-        throw new Error('MONGODB_URI no está definido en las variables de entorno');
+        fs.unlinkSync(localFilePath); // Limpiar archivo temporal
+        return {
+          success: false,
+          message: 'MONGODB_URI no está definido en las variables de entorno'
+        };
       }
 
       // Cerrar conexión de Prisma antes de restaurar
@@ -250,15 +365,51 @@ export class BackupService {
 
       // Ejecutar mongorestore para restaurar el backup
       this.logger.log('Ejecutando mongorestore...');
-      await execPromise(
-        `mongorestore --uri="${mongoUri}" --gzip --archive="${localFilePath}" --drop`,
-      );
+      try {
+        await execPromise(
+          `mongorestore --uri="${mongoUri}" --gzip --archive="${localFilePath}" --drop`,
+        );
+      } catch (restoreError) {
+        this.logger.error('Error en mongorestore:', restoreError);
+
+        // Intentar reconectar Prisma después del error
+        try {
+          await this.prismaService.$connect();
+        } catch (connError) {
+          this.logger.error('Error al reconectar Prisma después del fallo:', connError);
+        }
+
+        // Limpiar archivo temporal
+        try {
+          fs.unlinkSync(localFilePath);
+        } catch (unlinkError) {
+          this.logger.warn('No se pudo eliminar el archivo temporal:', unlinkError);
+        }
+
+        return {
+          success: false,
+          message: `Error al restaurar la base de datos: ${restoreError.message}`
+        };
+      }
 
       // Eliminar archivo temporal
-      fs.unlinkSync(localFilePath);
+      try {
+        fs.unlinkSync(localFilePath);
+      } catch (unlinkError) {
+        this.logger.warn('No se pudo eliminar el archivo temporal:', unlinkError);
+        // Continuamos aunque no se pueda borrar el archivo
+      }
 
       // Reconectar Prisma después de la restauración
-      await this.prismaService.$connect();
+      try {
+        await this.prismaService.$connect();
+      } catch (connError) {
+        this.logger.error('Error al reconectar Prisma:', connError);
+        return {
+          success: false,
+          message: `La base de datos fue restaurada pero hubo un error al reconectar Prisma: ${connError instanceof Error ? connError.message : 'Error desconocido'}`
+        };
+      }
 
       return {
         success: true,
@@ -286,9 +437,25 @@ export class BackupService {
    * @param backupPath Ruta del archivo de backup en Google Cloud Storage
    */
   async generateBackupDownloadUrl(backupPath: string): Promise<DownloadUrlResponse> {
+    if (!backupPath) {
+      return {
+        success: false,
+        message: 'Ruta de backup no especificada'
+      };
+    }
+
     try {
-      const storage = this.getStorageInstance();
+      const storage = await this.getStorageInstance();
       const bucketName = process.env.NAME_BUCKET_GOOGLE_STORAGE as string;
+
+      // Verificar si el archivo existe
+      const [exists] = await storage.bucket(bucketName).file(backupPath).exists();
+      if (!exists) {
+        return {
+          success: false,
+          message: `El archivo de backup no existe en gs://${bucketName}/${backupPath}`
+        };
+      }
 
       const [url] = await storage
         .bucket(bucketName)
@@ -301,9 +468,11 @@ export class BackupService {
 
       return {
         success: true,
-        downloadUrl: url
+        downloadUrl: url,
+        expiresIn: '15 minutos'
       };
     } catch (error) {
+      this.logger.error('Error al generar URL de descarga:', error);
       return {
         success: false,
         message: error instanceof Error ? error.message : 'Error al generar URL de descarga'

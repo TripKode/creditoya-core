@@ -23,4 +23,5 @@ export class BackupInfo {
     success: boolean;
     downloadUrl?: string;
     message?: string;
+    expiresIn?: string
   }

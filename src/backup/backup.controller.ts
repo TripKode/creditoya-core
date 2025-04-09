@@ -3,7 +3,7 @@ import { BackupService } from './backup.service';
 import { IntranetAuthGuard } from 'src/auth/guards/intranet-auth.guard';
 
 @Controller('admin/database')
-@UseGuards(IntranetAuthGuard)
+// @UseGuards(IntranetAuthGuard)
 export class BackupController {
   private readonly logger = new Logger(BackupController.name);
 
