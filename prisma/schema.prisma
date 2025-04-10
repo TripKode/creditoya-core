@@ -93,7 +93,9 @@ model GeneratedDocuments {
     loan          LoanApplication @relation(fields: [loanId], references: [id])
     uploadId      String
     publicUrl     String?
+    fileType      String
     documentTypes String[]
+    downloadCount Int             @default(0) // New field to track download count
     created_at    DateTime        @default(now())
     updated_at    DateTime        @updatedAt
 }
