@@ -49,7 +49,9 @@ export class ClientService {
       async () => {
         return this.prisma.user.findUnique({
           where: { id },
-          include: { Document: true },
+          include: { Document: true, LoanApplication: {
+            include: { GeneratedDocuments: true }
+          }},
         });
       },
       7200 // 2 horas de TTL
