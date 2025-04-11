@@ -5,6 +5,7 @@ import { PrismaModule } from 'src/prisma/prisma.module';
 import { RedisModule } from 'src/redis/redis.module';
 import { MailModule } from 'src/mail/mail.module';
 import { PdfsModule } from 'src/pdfs/pdfs.module';
+import { GoogleCloudModule } from 'src/gcp/gcp.module';
 
 @Module({
   imports: [
@@ -12,6 +13,7 @@ import { PdfsModule } from 'src/pdfs/pdfs.module';
     RedisModule,
     MailModule,
     PdfsModule,
+    GoogleCloudModule
   ],
   controllers: [LoanController],
   providers: [LoanService],

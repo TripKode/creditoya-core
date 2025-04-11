@@ -1,13 +1,13 @@
-// src/modules/loan/services/loan.service.ts
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { RedisService } from 'src/redis/redis.service';
-import { LoanApplication, StatusLoan } from '@prisma/client';
+import { GeneratedDocuments, LoanApplication, StatusLoan } from '@prisma/client';
 import { CreateLoanApplicationDto } from './dto/create-loan.dto';
 import { UpdateLoanApplicationDto } from './dto/update-loan.dto';
 import { ChangeLoanStatusDto } from './dto/change-loan-status.dto';
 import { MailService } from 'src/mail/mail.service';
 import { PdfsService } from 'src/pdfs/pdfs.service';
+import { GoogleCloudService } from 'src/gcp/gcp.service';
 
 @Injectable()
 export class LoanService {
@@ -22,6 +22,7 @@ export class LoanService {
     private redisService: RedisService,
     private readonly mailService: MailService,
     private readonly pdfService: PdfsService,
+    private readonly gcpService: GoogleCloudService,
   ) { }
 
   // Helper method to generate loan cache key
@@ -129,10 +130,10 @@ export class LoanService {
   }
 
   // Método para obtener una solicitud de préstamo por su ID
-  async get(id: string): Promise<LoanApplication> {
+  async get(id: string, options: { generateSignedUrls?: boolean } = {}): Promise<LoanApplication & { documents?: any[] }> {
     const cacheKey = this.getLoanCacheKey(id);
 
-    return this.redisService.getOrSet<LoanApplication>(
+    return this.redisService.getOrSet<LoanApplication & { documents?: any[] }>(
       cacheKey,
       async () => {
         const loan = await this.prisma.loanApplication.findUnique({
@@ -143,11 +144,52 @@ export class LoanService {
                 Document: true,
               },
             },
+            GeneratedDocuments: true
           },
         });
 
         if (!loan) {
           throw new NotFoundException(`Solicitud de préstamo con ID ${id} no encontrada`);
+        }
+
+        // Procesar los documentos generados
+        if (loan.GeneratedDocuments && loan.GeneratedDocuments.length > 0) {
+          // Vamos a manejar los documentos para añadir URLs firmadas o descargas directas
+          const enhancedDocuments = await Promise.all(
+            loan.GeneratedDocuments.map(async (doc) => {
+              // Solo procesar si es un documento ZIP
+              if (doc.fileType === 'application/zip' || doc.fileType.includes('zip')) {
+                try {
+                  // Opción 1: Generar URL firmada con tiempo limitado (5 minutos)
+                  if (options.generateSignedUrls !== false) {
+                    const signedUrl = await this.gcpService.getSignedUrl(
+                      doc.publicUrl || `${doc.uploadId}.zip`,
+                      5 // 5 minutos de tiempo de expiración
+                    );
+
+                    return {
+                      ...doc,
+                      signedUrl,
+                      fileInfo: await this.getZipFileInfo(doc)
+                    };
+                  }
+                  // La URL pública ya está incluida en el documento
+                } catch (error) {
+                  this.logger.error(`Error processing ZIP document ${doc.id}:`, error);
+                  // Devolvemos el documento sin cambios si hay un error
+                }
+              }
+              return doc;
+            })
+          );
+
+          // Añadir los documentos procesados al resultado
+          const result = {
+            ...loan,
+            GeneratedDocuments: enhancedDocuments
+          };
+
+          return result;
         }
 
         return loan;
@@ -325,108 +367,6 @@ export class LoanService {
     return fetchLoans();
   }
 
-  // Método para obtener las solicitudes de préstamo con estado "Pendiente"
-  async getPendingLoans(
-    page: number = 1,
-    pageSize: number = 5,
-    documentNumber?: string
-  ): Promise<{ data: LoanApplication[]; total: number }> {
-    const cacheKey = documentNumber
-      ? `loans:pending:p${page}:s${pageSize}:d${documentNumber}`
-      : `loans:pending:p${page}:s${pageSize}`;
-
-    // Limpiar el caché para asegurarnos de obtener datos frescos
-    await this.redisService.del(cacheKey);
-
-    return this.redisService.getOrSet(
-      cacheKey,
-      async () => {
-        const skip = (page - 1) * pageSize;
-
-        try {
-          // Build the filter object
-          const where: any = {
-            status: StatusLoan.Pendiente, // Asegúrate de que esto es correcto
-          };
-
-          // If document number is provided, find users with that document first
-          if (documentNumber) {
-            const usersWithDocument = await this.prisma.user.findMany({
-              where: {
-                Document: {
-                  some: {
-                    number: { equals: documentNumber, mode: 'insensitive' }
-                  }
-                }
-              },
-              select: { id: true }
-            });
-
-            if (usersWithDocument.length > 0) {
-              // Apply filter for those specific users
-              where.userId = {
-                in: usersWithDocument.map(u => u.id)
-              };
-            } else {
-              // Si no hay usuarios con ese documento, devolvemos un conjunto vacío
-              return { data: [], total: 0 };
-            }
-          }
-
-          // Get loan applications that have valid user references first
-          const validLoans = await this.prisma.loanApplication.findMany({
-            where,
-            include: {
-              user: true
-            },
-            orderBy: {
-              created_at: 'desc',
-            },
-          });
-
-          // Para depuración - verifica que los préstamos tengan el estado correcto
-          console.log('Loans after DB query:', validLoans.map(loan => ({ id: loan.id, status: loan.status })));
-
-          // Filter out loans with null users first
-          const loansWithValidUsers = validLoans.filter(loan => loan.user !== null);
-          const total = loansWithValidUsers.length;
-
-          // Apply pagination manually
-          const paginatedData = loansWithValidUsers.slice(skip, skip + pageSize);
-
-          // Get document information for each user if there are any loans
-          if (paginatedData.length > 0) {
-            const userIds = paginatedData.map(loan => loan.userId);
-
-            const usersWithDocuments = await this.prisma.user.findMany({
-              where: {
-                id: { in: userIds }
-              },
-              include: {
-                Document: true
-              }
-            });
-
-            // Map users with their documents back to the loan data
-            for (const loan of paginatedData) {
-              const userWithDocs = usersWithDocuments.find(u => u.id === loan.userId);
-              if (userWithDocs && userWithDocs.Document) {
-                // Use type assertion to avoid TypeScript issues
-                (loan.user as any).Document = userWithDocs.Document;
-              }
-            }
-          }
-
-          return { data: paginatedData, total };
-        } catch (error) {
-          console.error('Error fetching pending loans:', error);
-          throw new BadRequestException('Error al obtener las solicitudes de préstamo pendientes');
-        }
-      },
-      this.CACHE_TTL
-    );
-  }
-
   // Improved service method to handle all loan types with pagination
   async getLoans(
     status: StatusLoan | null = null,
@@ -561,6 +501,108 @@ export class LoanService {
         } catch (error) {
           console.error('Error fetching loans:', error);
           throw new BadRequestException(`Error al obtener las solicitudes de préstamo: ${error.message}`);
+        }
+      },
+      this.CACHE_TTL
+    );
+  }
+
+  // Método para obtener las solicitudes de préstamo con estado "Pendiente"
+  async getPendingLoans(
+    page: number = 1,
+    pageSize: number = 5,
+    documentNumber?: string
+  ): Promise<{ data: LoanApplication[]; total: number }> {
+    const cacheKey = documentNumber
+      ? `loans:pending:p${page}:s${pageSize}:d${documentNumber}`
+      : `loans:pending:p${page}:s${pageSize}`;
+
+    // Limpiar el caché para asegurarnos de obtener datos frescos
+    await this.redisService.del(cacheKey);
+
+    return this.redisService.getOrSet(
+      cacheKey,
+      async () => {
+        const skip = (page - 1) * pageSize;
+
+        try {
+          // Build the filter object
+          const where: any = {
+            status: StatusLoan.Pendiente, // Asegúrate de que esto es correcto
+          };
+
+          // If document number is provided, find users with that document first
+          if (documentNumber) {
+            const usersWithDocument = await this.prisma.user.findMany({
+              where: {
+                Document: {
+                  some: {
+                    number: { equals: documentNumber, mode: 'insensitive' }
+                  }
+                }
+              },
+              select: { id: true }
+            });
+
+            if (usersWithDocument.length > 0) {
+              // Apply filter for those specific users
+              where.userId = {
+                in: usersWithDocument.map(u => u.id)
+              };
+            } else {
+              // Si no hay usuarios con ese documento, devolvemos un conjunto vacío
+              return { data: [], total: 0 };
+            }
+          }
+
+          // Get loan applications that have valid user references first
+          const validLoans = await this.prisma.loanApplication.findMany({
+            where,
+            include: {
+              user: true
+            },
+            orderBy: {
+              created_at: 'desc',
+            },
+          });
+
+          // Para depuración - verifica que los préstamos tengan el estado correcto
+          console.log('Loans after DB query:', validLoans.map(loan => ({ id: loan.id, status: loan.status })));
+
+          // Filter out loans with null users first
+          const loansWithValidUsers = validLoans.filter(loan => loan.user !== null);
+          const total = loansWithValidUsers.length;
+
+          // Apply pagination manually
+          const paginatedData = loansWithValidUsers.slice(skip, skip + pageSize);
+
+          // Get document information for each user if there are any loans
+          if (paginatedData.length > 0) {
+            const userIds = paginatedData.map(loan => loan.userId);
+
+            const usersWithDocuments = await this.prisma.user.findMany({
+              where: {
+                id: { in: userIds }
+              },
+              include: {
+                Document: true
+              }
+            });
+
+            // Map users with their documents back to the loan data
+            for (const loan of paginatedData) {
+              const userWithDocs = usersWithDocuments.find(u => u.id === loan.userId);
+              if (userWithDocs && userWithDocs.Document) {
+                // Use type assertion to avoid TypeScript issues
+                (loan.user as any).Document = userWithDocs.Document;
+              }
+            }
+          }
+
+          return { data: paginatedData, total };
+        } catch (error) {
+          console.error('Error fetching pending loans:', error);
+          throw new BadRequestException('Error al obtener las solicitudes de préstamo pendientes');
         }
       },
       this.CACHE_TTL
@@ -823,6 +865,61 @@ export class LoanService {
         throw error;
       }
       throw new BadRequestException('Error al responder a la nueva cantidad propuesta');
+    }
+  }
+
+
+  // aux methods
+
+  // Método auxiliar para obtener información sobre el archivo ZIP
+  private async getZipFileInfo(doc: GeneratedDocuments): Promise<any> {
+    try {
+      const fileName = doc.publicUrl || `${doc.uploadId}.zip`;
+
+      // Aquí podríamos usar estadísticas del archivo si GCP las proporciona
+      // Por ahora, devolvemos información básica
+      return {
+        name: fileName.split('/').pop() || fileName,
+        fileCount: doc.documentTypes?.length || 0,
+        size: 'Tamaño no disponible', // GCP no proporciona directamente el tamaño
+        modifiedDate: doc.updated_at.toLocaleDateString()
+      };
+    } catch (error) {
+      this.logger.error('Error getting ZIP file info:', error);
+      return null;
+    }
+  }
+
+  // Método adicional para descargar directamente un archivo ZIP
+  async downloadZipDocument(documentId: string): Promise<{ buffer: Buffer; fileName: string; contentType: string }> {
+    try {
+      // Primero obtener la información del documento
+      const document = await this.prisma.generatedDocuments.findUnique({
+        where: { id: documentId }
+      });
+
+      if (!document) {
+        throw new NotFoundException(`Documento con ID ${documentId} no encontrado`);
+      }
+
+      if (!document.publicUrl || !document.fileType.includes('zip')) {
+        throw new BadRequestException('El documento solicitado no es un archivo ZIP válido');
+      }
+
+      // Obtener el nombre del archivo desde la URL
+      const fileName = document.publicUrl.split('/').pop() || `documento-${documentId}.zip`;
+
+      // Descargar el archivo ZIP desde GCS
+      const fileBuffer = await this.gcpService.downloadZipFromGcs(documentId, document.publicUrl);
+
+      return {
+        buffer: fileBuffer,
+        fileName,
+        contentType: document.fileType
+      };
+    } catch (error) {
+      this.logger.error(`Error downloading ZIP document ${documentId}:`, error);
+      throw new BadRequestException(`Error al descargar el archivo ZIP: ${error.message}`);
     }
   }
 }
