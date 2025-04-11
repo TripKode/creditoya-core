@@ -177,8 +177,11 @@ export class ClientService {
   async all(
     page: number = 1,
     pageSize: number = 8,
+    searchQuery?: string
   ): Promise<{ users: User[]; totalCount: number }> {
-    const cacheKey = `users:page:${page}:size:${pageSize}`;
+    // Incluir el término de búsqueda en la clave de caché si existe
+    const searchPart = searchQuery ? `:search:${searchQuery}` : '';
+    const cacheKey = `users:page:${page}:size:${pageSize}${searchPart}`;
 
     return this.redis.getOrSet(
       cacheKey,
@@ -186,19 +189,45 @@ export class ClientService {
         try {
           const skip = (page - 1) * pageSize;
 
+          // Construir condiciones de búsqueda si se proporciona searchQuery
+          let where: Prisma.UserWhereInput = {};
+
+          if (searchQuery && searchQuery.trim() !== '') {
+            const cleanSearchQuery = searchQuery.trim();
+
+            // Crear condiciones OR para buscar en diferentes campos
+            const searchConditions: Prisma.UserWhereInput[] = [
+              // Buscar por nombre
+              { names: { contains: cleanSearchQuery, mode: 'insensitive' as Prisma.QueryMode } },
+              // Buscar por primer apellido
+              { firstLastName: { contains: cleanSearchQuery, mode: 'insensitive' as Prisma.QueryMode } },
+              // Buscar por segundo apellido
+              { secondLastName: { contains: cleanSearchQuery, mode: 'insensitive' as Prisma.QueryMode } },
+              // Buscar por documento
+              { Document: { some: { number: { contains: cleanSearchQuery } } } }
+            ];
+
+            // Asignar condiciones OR al filtro where
+            where.OR = searchConditions;
+
+            console.log(`Aplicando búsqueda avanzada para: "${cleanSearchQuery}"`);
+          }
+
           // Añado logging para diagnóstico
-          console.log(`Fetching users with skip=${skip}, take=${pageSize}`);
+          console.log(`Fetching users with skip=${skip}, take=${pageSize}, search=${searchQuery || 'none'}`);
 
           const [users, totalCount] = await Promise.all([
             this.prisma.user.findMany({
+              where,
               skip: skip,
               take: pageSize,
               include: { Document: true }, // Incluye documentos relacionados
+              orderBy: { createdAt: 'desc' } // Ordenar por fecha de creación descendente
             }),
-            this.prisma.user.count(),
+            this.prisma.user.count({ where }) // Contar solo los usuarios que coinciden con el filtro
           ]);
 
-          console.log(`Found ${users.length} users out of ${totalCount} total`);
+          console.log(`Found ${users.length} users out of ${totalCount} total for search: ${searchQuery || 'none'}`);
 
           return { users, totalCount };
         } catch (error) {

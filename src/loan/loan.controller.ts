@@ -56,27 +56,27 @@ export class LoanController {
   async getApprovedLoans(
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
     @Query('pageSize', new DefaultValuePipe(5), ParseIntPipe) pageSize: number,
-    @Query('documentNumber') documentNumber?: string,
+    @Query('search') searchQuery?: string,
   ) {
-    return this.loanService.getApprovedLoans(page, pageSize, documentNumber);
+    return this.loanService.getApprovedLoans(page, pageSize, searchQuery);
   }
 
   @Get('deferred')
   async getDeferredLoans(
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
     @Query('pageSize', new DefaultValuePipe(5), ParseIntPipe) pageSize: number,
-    @Query('documentNumber') documentNumber?: string,
+    @Query('search') searchQuery?: string,
   ) {
-    return this.loanService.getDeferredLoans(page, pageSize, documentNumber);
+    return this.loanService.getDeferredLoans(page, pageSize, searchQuery);
   }
 
   @Get('new-cantity')
   async getLoansWithDefinedNewCantity(
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
     @Query('pageSize', new DefaultValuePipe(5), ParseIntPipe) pageSize: number,
-    @Query('documentNumber') documentNumber?: string,
+    @Query('search') searchQuery?: string,
   ) {
-    return this.loanService.getLoansWithDefinedNewCantity(page, pageSize, documentNumber);
+    return this.loanService.getLoansWithDefinedNewCantity(page, pageSize, searchQuery);
   }
 
   @Get(':id')

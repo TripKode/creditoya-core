@@ -59,10 +59,12 @@ export class ClientController {
   async all(
     @Query('page') page: string = '1',
     @Query('pageSize') pageSize: string = '8',
+    @Query('search') search?: string,
   ): Promise<{ users: User[]; totalCount: number }> {
     return await this.clientService.all(
       parseInt(page),
       parseInt(pageSize),
+      search
     );
   }
 
