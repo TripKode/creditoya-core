@@ -8,6 +8,7 @@ import { ChangeLoanStatusDto } from './dto/change-loan-status.dto';
 import { MailService } from 'src/mail/mail.service';
 import { PdfsService } from 'src/pdfs/pdfs.service';
 import { GoogleCloudService } from 'src/gcp/gcp.service';
+import { ILoanApplication } from 'types/full';
 
 @Injectable()
 export class LoanService {
@@ -539,6 +540,123 @@ export class LoanService {
       },
       this.CACHE_TTL
     );
+  }
+
+  async rejectDocumentInLoan(
+    loanId: string,
+    documentType: 'fisrt_flyer' | 'second_flyer' | 'third_flyer' | 'labor_card'
+  ): Promise<LoanApplication> {
+    try {
+      // Verificar que la solicitud existe
+      const existingLoan = await this.get(loanId);
+
+      // Determinar qué campos actualizar basado en el tipo de documento
+      const updateData: any = {};
+
+      if (documentType === 'fisrt_flyer') {
+        updateData.fisrt_flyer = null;
+        updateData.upid_first_flayer = null;
+      } else if (documentType === 'second_flyer') {
+        updateData.second_flyer = null;
+        updateData.upid_second_flyer = null;
+      } else if (documentType === 'third_flyer') {
+        updateData.third_flyer = null;
+        updateData.upid_third_flayer = null;
+      } else if (documentType === 'labor_card') {
+        updateData.labor_card = null;
+        updateData.upid_labor_card = null;
+      } else {
+        throw new BadRequestException('Tipo de documento no válido');
+      }
+
+      // Actualizar la solicitud de préstamo
+      const updatedLoan = await this.prisma.loanApplication.update({
+        where: { id: loanId },
+        data: updateData,
+        include: {
+          user: true,
+        },
+      });
+
+      // Invalidar cache después de la actualización
+      const cacheKey = this.getLoanCacheKey(loanId);
+      await this.redisService.del(cacheKey);
+      await this.invalidateLoanCache(loanId);
+      await this.redisService.del(this.getUserLoansCacheKey(existingLoan.userId));
+
+      // Notificar al usuario sobre el rechazo del documento
+      await this.mailService.sendDeleteDocMail({
+        loanId,
+        mail: updatedLoan.user.email,
+      });
+
+      return updatedLoan;
+    } catch (error) {
+      if (error instanceof NotFoundException || error instanceof BadRequestException) {
+        throw error;
+      }
+      this.logger.error(`Error al rechazar documento en préstamo ${loanId}:`, error);
+      throw new BadRequestException(`Error al rechazar el documento: ${error.message}`);
+    }
+  }
+
+  async uploadRejectedDocument(
+    loanId: string,
+    documentType: 'fisrt_flyer' | 'second_flyer' | 'third_flyer' | 'labor_card',
+    fileData: {
+      fileUrl: string,
+      uploadId: string
+    }
+  ): Promise<LoanApplication> {
+    try {
+      // Verificar que la solicitud existe
+      const existingLoan = await this.get(loanId);
+
+      // Verificar que el usuario que solicita la actualización es el propietario del préstamo
+      // Esta validación debería hacerse en el controlador o middleware, pero se incluye aquí como referencia
+
+      // Determinar qué campos actualizar basado en el tipo de documento
+      const updateData: any = {};
+
+      if (documentType === 'fisrt_flyer') {
+        updateData.fisrt_flyer = fileData.fileUrl;
+        updateData.upid_first_flayer = fileData.uploadId;
+      } else if (documentType === 'second_flyer') {
+        updateData.second_flyer = fileData.fileUrl;
+        updateData.upid_second_flyer = fileData.uploadId;
+      } else if (documentType === 'third_flyer') {
+        updateData.third_flyer = fileData.fileUrl;
+        updateData.upid_third_flayer = fileData.uploadId;
+      } else if (documentType === 'labor_card') {
+        updateData.labor_card = fileData.fileUrl;
+        updateData.upid_labor_card = fileData.uploadId;
+      } else {
+        throw new BadRequestException('Tipo de documento no válido');
+      }
+
+      // Actualizar la solicitud de préstamo
+      const updatedLoan = await this.prisma.loanApplication.update({
+        where: { id: loanId },
+        data: updateData,
+        include: {
+          user: true,
+        },
+      });
+
+      // Invalidar cache después de la actualización
+      const cacheKey = this.getLoanCacheKey(loanId);
+      await this.redisService.del(cacheKey);
+      await this.invalidateLoanCache(loanId);
+      await this.redisService.del(this.getUserLoansCacheKey(existingLoan.userId));
+
+      return updatedLoan;
+    } catch (error) {
+      if (error instanceof NotFoundException || error instanceof BadRequestException) {
+        throw error;
+      }
+      this.logger.error(`Error al actualizar documento rechazado en préstamo ${loanId}:`, error);
+      throw new BadRequestException(`Error al actualizar el documento: ${error.message}`);
+    }
   }
 
   // Método para obtener una solicitud de préstamo por el ID del usuario
