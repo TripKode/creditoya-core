@@ -8,7 +8,6 @@ import { ChangeLoanStatusDto } from './dto/change-loan-status.dto';
 import { MailService } from 'src/mail/mail.service';
 import { PdfsService } from 'src/pdfs/pdfs.service';
 import { GoogleCloudService } from 'src/gcp/gcp.service';
-import { ILoanApplication } from 'types/full';
 
 @Injectable()
 export class LoanService {
@@ -374,10 +373,106 @@ export class LoanService {
     pageSize: number = 5,
     documentNumber?: string
   ): Promise<{ data: LoanApplication[]; total: number }> {
-    // Si hay un número de documento, úsalo como búsqueda
-    const searchQuery = documentNumber || undefined;
+    // Crear una clave de caché específica para este método
+    const searchPart = documentNumber ? `:q${documentNumber}` : '';
+    const cacheKey = `loans:pendiente-only:p${page}:s${pageSize}${searchPart}`;
 
-    return this.getLoans(StatusLoan.Pendiente, page, pageSize, searchQuery);
+    return this.redisService.getOrSet(
+      cacheKey,
+      async () => {
+        const skip = (page - 1) * pageSize;
+
+        try {
+          // Construir un filtro where exacto para status=Pendiente
+          const where: Prisma.LoanApplicationWhereInput = {
+            status: StatusLoan.Pendiente // Esto fuerza una coincidencia exacta
+          };
+
+          // Aplicar búsqueda por número de documento si se proporciona
+          if (documentNumber && documentNumber.trim() !== '') {
+            const cleanDocNumber = documentNumber.trim();
+
+            // Buscar usuarios con ese número de documento
+            const usersWithDocument = await this.prisma.user.findMany({
+              where: {
+                Document: {
+                  some: {
+                    number: { contains: cleanDocNumber }
+                  }
+                }
+              },
+              select: { id: true }
+            });
+
+            const userIds = usersWithDocument.map(u => u.id);
+
+            // Si encontramos coincidencias, filtrar por esos usuarios
+            if (userIds.length > 0) {
+              where.userId = { in: userIds };
+            } else {
+              // Si no hay coincidencias con el número de documento, devolver resultado vacío
+              return { data: [], total: 0 };
+            }
+          }
+
+          // Contar el total de préstamos pendientes que coinciden con los criterios
+          const totalLoans = await this.prisma.loanApplication.count({
+            where
+          });
+
+          // Obtener los préstamos pendientes con paginación
+          const loans = await this.prisma.loanApplication.findMany({
+            where,
+            include: {
+              user: true
+            },
+            orderBy: {
+              created_at: 'asc', // Del más viejo al más reciente
+            },
+            skip,
+            take: pageSize
+          });
+
+          // Filtrar préstamos con usuarios nulos
+          const loansWithValidUsers = loans.filter(loan => loan.user !== null);
+
+          // Obtener información de documentos para cada usuario eficientemente
+          if (loansWithValidUsers.length > 0) {
+            const userIds = loansWithValidUsers.map(loan => loan.userId);
+
+            // Consulta para obtener todos los usuarios con sus documentos
+            const usersWithDocuments = await this.prisma.user.findMany({
+              where: {
+                id: { in: userIds }
+              },
+              include: {
+                Document: true
+              }
+            });
+
+            // Crear un mapa para búsqueda rápida
+            const userDocMap = new Map(
+              usersWithDocuments.map(user => [user.id, user])
+            );
+
+            // Adjuntar datos de documentos a cada préstamo
+            for (const loan of loansWithValidUsers) {
+              const userWithDocs = userDocMap.get(loan.userId);
+              if (userWithDocs) {
+                (loan.user as any).Document = userWithDocs?.Document || [];
+              }
+            }
+          }
+
+          this.logger.log(`Se encontraron ${totalLoans} préstamos pendientes`);
+          return { data: loansWithValidUsers, total: totalLoans };
+        } catch (error) {
+          this.logger.error('Error al obtener préstamos pendientes:', error);
+          throw new BadRequestException(`Error al obtener las solicitudes de préstamo pendientes: ${error.message}`);
+        }
+      },
+      this.CACHE_TTL
+    );
   }
 
   // Maintain backward compatibility with wrapper methods
@@ -904,8 +999,9 @@ export class LoanService {
     } = {}
   ): Promise<{ data: LoanApplication[]; total: number }> {
     // Create a specific cache key based on all parameters
+    const statusStr = status ? status.toString() : 'all';
     const searchPart = searchQuery ? `:q${searchQuery}` : '';
-    const cacheKey = `loans:${status || 'all'}:${options.withNewCantity ? 'newcantity' : ''}:p${page}:s${pageSize}${searchPart}`;
+    const cacheKey = `loans:${statusStr}:${options.withNewCantity ? 'newcantity' : ''}:p${page}:s${pageSize}${searchPart}`;
 
     return this.redisService.getOrSet(
       cacheKey,
@@ -913,12 +1009,14 @@ export class LoanService {
         const skip = (page - 1) * pageSize;
 
         try {
-          // Build the base where filter
-          const where: any = {};
+          // Build the base where filter with explicit status check
+          const where: Prisma.LoanApplicationWhereInput = {};
 
-          // Add status filter if provided
-          if (status) {
-            where.status = status;
+          // Add strict status filter if provided
+          if (status !== null) {
+            where.status = {
+              equals: status
+            };
           }
 
           // Add newCantity filters if requested
@@ -959,7 +1057,7 @@ export class LoanService {
             // Si no encontramos usuarios por número de documento o no es un número,
             // realizamos búsqueda por nombre
             if (userIdsToInclude.length === 0 && cleanSearchQuery.length >= 2) {
-              // Usar nuestra nueva función especializada de búsqueda por nombre
+              // Usar nuestra función especializada de búsqueda por nombre
               userIdsToInclude = await this.searchLoansByUserName(cleanSearchQuery, status);
             }
 
@@ -967,7 +1065,6 @@ export class LoanService {
             const searchConditions: Prisma.LoanApplicationWhereInput[] = [];
 
             // Incluir búsqueda por ID de préstamo solo si parece un ID
-            // Los IDs suelen incluir guiones o tener un formato específico
             const isPossibleId = cleanSearchQuery.includes('-') || /^[a-f0-9-]+$/i.test(cleanSearchQuery);
 
             if (isPossibleId) {
@@ -989,8 +1086,15 @@ export class LoanService {
               return { data: [], total: 0 };
             }
 
-            // Combinar todas las condiciones de búsqueda con OR
-            where.OR = searchConditions;
+            // Mantener el status filter mientras aplicamos condiciones de búsqueda
+            if (status !== null) {
+              where.AND = [
+                { status: status },
+                { OR: searchConditions }
+              ];
+            } else {
+              where.OR = searchConditions;
+            }
           }
           // ---- FIN DE BÚSQUEDA MEJORADA ----
 
@@ -1015,10 +1119,11 @@ export class LoanService {
           // Filter out loans with null users
           const loansWithValidUsers = loans.filter(loan => loan.user !== null);
 
-          // Get document information for each user
+          // Get document information for each user - using more efficient batched query
           if (loansWithValidUsers.length > 0) {
             const userIds = loansWithValidUsers.map(loan => loan.userId);
 
+            // Fetch all relevant users and documents in one query
             const usersWithDocuments = await this.prisma.user.findMany({
               where: {
                 id: { in: userIds }
@@ -1028,16 +1133,21 @@ export class LoanService {
               }
             });
 
-            // Map users with their documents back to the loan data
+            // Create a map for quick user lookup
+            const userDocMap = new Map(
+              usersWithDocuments.map(user => [user.id, user])
+            );
+
+            // Efficiently attach document data to each loan
             for (const loan of loansWithValidUsers) {
-              const userWithDocs = usersWithDocuments.find(u => u.id === loan.userId);
-              if (userWithDocs && userWithDocs.Document) {
+              const userWithDocs = userDocMap.get(loan.userId);
+              if (userWithDocs) {
                 (loan.user as any).Document = userWithDocs.Document;
               }
             }
           }
 
-          this.logger.log(`Se encontraron ${totalLoans} préstamos que coinciden con los criterios de búsqueda`);
+          this.logger.log(`Se encontraron ${totalLoans} préstamos con estado ${status || 'cualquiera'}`);
           return { data: loansWithValidUsers, total: totalLoans };
         } catch (error) {
           this.logger.error('Error al obtener préstamos:', error);
