@@ -999,9 +999,8 @@ export class LoanService {
     } = {}
   ): Promise<{ data: LoanApplication[]; total: number }> {
     // Create a specific cache key based on all parameters
-    const statusStr = status ? status.toString() : 'all';
     const searchPart = searchQuery ? `:q${searchQuery}` : '';
-    const cacheKey = `loans:${statusStr}:${options.withNewCantity ? 'newcantity' : ''}:p${page}:s${pageSize}${searchPart}`;
+    const cacheKey = `loans:${status || 'all'}:${options.withNewCantity ? 'newcantity' : ''}:p${page}:s${pageSize}${searchPart}`;
 
     return this.redisService.getOrSet(
       cacheKey,
@@ -1009,14 +1008,12 @@ export class LoanService {
         const skip = (page - 1) * pageSize;
 
         try {
-          // Build the base where filter with explicit status check
-          const where: Prisma.LoanApplicationWhereInput = {};
+          // Build the base where filter
+          const where: any = {};
 
-          // Add strict status filter if provided
-          if (status !== null) {
-            where.status = {
-              equals: status
-            };
+          // Add status filter if provided
+          if (status) {
+            where.status = status;
           }
 
           // Add newCantity filters if requested
@@ -1057,7 +1054,7 @@ export class LoanService {
             // Si no encontramos usuarios por número de documento o no es un número,
             // realizamos búsqueda por nombre
             if (userIdsToInclude.length === 0 && cleanSearchQuery.length >= 2) {
-              // Usar nuestra función especializada de búsqueda por nombre
+              // Usar nuestra nueva función especializada de búsqueda por nombre
               userIdsToInclude = await this.searchLoansByUserName(cleanSearchQuery, status);
             }
 
@@ -1065,6 +1062,7 @@ export class LoanService {
             const searchConditions: Prisma.LoanApplicationWhereInput[] = [];
 
             // Incluir búsqueda por ID de préstamo solo si parece un ID
+            // Los IDs suelen incluir guiones o tener un formato específico
             const isPossibleId = cleanSearchQuery.includes('-') || /^[a-f0-9-]+$/i.test(cleanSearchQuery);
 
             if (isPossibleId) {
@@ -1086,15 +1084,8 @@ export class LoanService {
               return { data: [], total: 0 };
             }
 
-            // Mantener el status filter mientras aplicamos condiciones de búsqueda
-            if (status !== null) {
-              where.AND = [
-                { status: status },
-                { OR: searchConditions }
-              ];
-            } else {
-              where.OR = searchConditions;
-            }
+            // Combinar todas las condiciones de búsqueda con OR
+            where.OR = searchConditions;
           }
           // ---- FIN DE BÚSQUEDA MEJORADA ----
 
@@ -1119,11 +1110,10 @@ export class LoanService {
           // Filter out loans with null users
           const loansWithValidUsers = loans.filter(loan => loan.user !== null);
 
-          // Get document information for each user - using more efficient batched query
+          // Get document information for each user
           if (loansWithValidUsers.length > 0) {
             const userIds = loansWithValidUsers.map(loan => loan.userId);
 
-            // Fetch all relevant users and documents in one query
             const usersWithDocuments = await this.prisma.user.findMany({
               where: {
                 id: { in: userIds }
@@ -1133,21 +1123,16 @@ export class LoanService {
               }
             });
 
-            // Create a map for quick user lookup
-            const userDocMap = new Map(
-              usersWithDocuments.map(user => [user.id, user])
-            );
-
-            // Efficiently attach document data to each loan
+            // Map users with their documents back to the loan data
             for (const loan of loansWithValidUsers) {
-              const userWithDocs = userDocMap.get(loan.userId);
-              if (userWithDocs) {
+              const userWithDocs = usersWithDocuments.find(u => u.id === loan.userId);
+              if (userWithDocs && userWithDocs.Document) {
                 (loan.user as any).Document = userWithDocs.Document;
               }
             }
           }
 
-          this.logger.log(`Se encontraron ${totalLoans} préstamos con estado ${status || 'cualquiera'}`);
+          this.logger.log(`Se encontraron ${totalLoans} préstamos que coinciden con los criterios de búsqueda`);
           return { data: loansWithValidUsers, total: totalLoans };
         } catch (error) {
           this.logger.error('Error al obtener préstamos:', error);
