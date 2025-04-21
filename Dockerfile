@@ -1,4 +1,4 @@
-FROM node:20-alpine3.18@sha256:securehashvalue
+FROM node:20-alpine
 
 WORKDIR /app
 
