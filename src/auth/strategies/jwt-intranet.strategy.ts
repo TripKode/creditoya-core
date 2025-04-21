@@ -1,19 +1,22 @@
-import { ExtractJwt, Strategy } from 'passport-jwt';
+// auth/strategies/jwt-intranet.strategy.ts
+import { Strategy } from 'passport-jwt';
 import { PassportStrategy } from '@nestjs/passport';
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { Request } from 'express';
 
 @Injectable()
 export class JwtIntranetStrategy extends PassportStrategy(Strategy, 'jwt-intranet') {
   constructor(private prisma: PrismaService) {
     super({
-      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      jwtFromRequest: extractJwtFromCookie('@creditoya:token-intranet'),
       ignoreExpiration: false,
       secretOrKey: process.env.JWT_SECRET!,
+      passReqToCallback: true,
     });
   }
 
-  async validate(payload: any) {
+  async validate(req: Request, payload: any) {
     if (payload.type !== 'intranet') {
       throw new UnauthorizedException('Token inválido para usuarios de intranet');
     }
@@ -26,11 +29,22 @@ export class JwtIntranetStrategy extends PassportStrategy(Strategy, 'jwt-intrane
       throw new UnauthorizedException();
     }
 
-    return { 
-      id: payload.sub, 
+    return {
+      id: payload.sub,
       email: payload.email,
       rol: payload.rol,
-      type: 'intranet' 
+      type: 'intranet'
     };
   }
+}
+
+// Función para extraer el JWT de la cookie
+function extractJwtFromCookie(cookieName: string) {
+  return function(req: Request) {
+    let token = null;
+    if (req && req.cookies) {
+      token = req.cookies[cookieName];
+    }
+    return token;
+  };
 }

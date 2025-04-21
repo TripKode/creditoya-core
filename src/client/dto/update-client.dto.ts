@@ -1,4 +1,4 @@
-import { PartialType } from '@nestjs/mapped-types';
+import { User } from 'types/full';
 import { CreateClientDto } from './create-client.dto';
 
-export type UpdateClientDto = Omit<CreateClientDto, 'password'>;
+export type UpdateClientDto = Omit<User, 'password'>;

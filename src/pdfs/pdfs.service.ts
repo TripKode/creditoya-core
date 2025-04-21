@@ -683,14 +683,24 @@ export class PdfsService {
       // Generate ZIP with PDFs
       const zipBuffer = await this.generateMultiplePdfs(processedParams);
 
-      // Create a File object from the ZIP buffer with explicit ZIP MIME type
-      const blob = new Blob([zipBuffer], { type: 'application/zip' });
-      const file = new File([blob], 'documents.zip', { type: 'application/zip' });
+      // Create a multer-compatible file object from the ZIP buffer
+      const multerFile: Express.Multer.File = {
+        fieldname: 'file',
+        originalname: 'documents.zip',
+        encoding: '7bit',
+        mimetype: 'application/zip',
+        buffer: zipBuffer,
+        size: zipBuffer.length,
+        stream: null as any,
+        destination: null as any,
+        filename: null as any,
+        path: null as any
+      };
 
       // Upload to Google Cloud Storage with explicit content type
       const uploadId = uuidv4();
       const result = await this.googleCloudService.uploadToGcs({
-        file,
+        file: multerFile,
         userId,
         name: 'documents',
         upId: uploadId,

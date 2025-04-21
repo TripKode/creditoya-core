@@ -1,5 +1,6 @@
 generator client {
     provider = "prisma-client-js"
+    output   = "./node_modules/@prisma/client"
 }
 
 datasource db {
@@ -14,7 +15,7 @@ model User {
     names                  String
     firstLastName          String
     secondLastName         String
-    currentCompanie        companiesUser     @default(no)
+    currentCompanie        companiesUser
     avatar                 String            @default("No definido")
     phone                  String            @unique @default("No definido")
     residence_phone_number String            @default("No definido")
@@ -148,7 +149,6 @@ enum companiesUser {
     pichichi_sas
     pichichi_coorte
     valor_agregado
-    no
 }
 
 enum StatusIssues {

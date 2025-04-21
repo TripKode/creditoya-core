@@ -1,4 +1,3 @@
-// src/modules/loan/controllers/loan.controller.ts
 import {
   Controller,
   Get,
@@ -13,22 +12,39 @@ import {
   ParseBoolPipe,
   BadRequestException,
   ParseUUIDPipe,
+  UseGuards,
 } from '@nestjs/common';
 import { LoanService } from './loan.service';
 import { CreateLoanApplicationDto } from './dto/create-loan.dto';
 import { UpdateLoanApplicationDto } from './dto/update-loan.dto';
 import { ChangeLoanStatusDto } from './dto/change-loan-status.dto';
 import { StatusLoan } from '@prisma/client';
+import { ClientAuthGuard } from '../auth/guards/client-auth.guard';
+import { IntranetAuthGuard } from '../auth/guards/intranet-auth.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
 
 @Controller('loans')
 export class LoanController {
   constructor(private readonly loanService: LoanService) { }
 
+  // Permitir a clientes crear solicitudes de préstamo
+  @UseGuards(ClientAuthGuard)
   @Post()
-  async create(@Body() createLoanDto: CreateLoanApplicationDto) {
+  async create(
+    @Body() createLoanDto: CreateLoanApplicationDto,
+    @CurrentUser() user: any
+  ) {
+    // Asegurarse que el userId en el DTO coincide con el usuario autenticado
+    if (createLoanDto.userId !== user.id) {
+      throw new BadRequestException('No puede crear solicitudes para otros usuarios');
+    }
     return this.loanService.create(createLoanDto);
   }
 
+  // Solo personal de intranet puede ver todas las solicitudes
+  @UseGuards(IntranetAuthGuard)
   @Get()
   async findAll(
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
@@ -44,6 +60,8 @@ export class LoanController {
     return this.loanService.getAll(page, pageSize, searchTerm, orderBy, filterByAmount);
   }
 
+  // Solo personal de intranet puede ver préstamos pendientes
+  @UseGuards(IntranetAuthGuard)
   @Get('pending')
   async getPendingLoans(
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
@@ -52,6 +70,8 @@ export class LoanController {
     return this.loanService.getPendingLoans(page, pageSize);
   }
 
+  // Solo personal de intranet puede ver préstamos aprobados
+  @UseGuards(IntranetAuthGuard)
   @Get('approved')
   async getApprovedLoans(
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
@@ -61,6 +81,8 @@ export class LoanController {
     return this.loanService.getApprovedLoans(page, pageSize, searchQuery);
   }
 
+  // Solo personal de intranet puede ver préstamos diferidos
+  @UseGuards(IntranetAuthGuard)
   @Get('deferred')
   async getDeferredLoans(
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
@@ -70,6 +92,8 @@ export class LoanController {
     return this.loanService.getDeferredLoans(page, pageSize, searchQuery);
   }
 
+  // Solo personal de intranet puede ver préstamos con nueva cantidad definida
+  @UseGuards(IntranetAuthGuard)
   @Get('new-cantity')
   async getLoansWithDefinedNewCantity(
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
@@ -79,16 +103,57 @@ export class LoanController {
     return this.loanService.getLoansWithDefinedNewCantity(page, pageSize, searchQuery);
   }
 
+  // Accesible para clientes e intranet, pero con restricciones
+  @UseGuards(ClientAuthGuard)
   @Get(':id')
-  async findOne(@Param('id', ParseUUIDPipe) id: string) {
-    return this.loanService.get(id);
+  async findOne(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: any
+  ) {
+    const loan = await this.loanService.get(id);
+    
+    // Si es un cliente, solo puede ver sus propios préstamos
+    if (user.type === 'client' && loan.userId !== user.id) {
+      throw new BadRequestException('No autorizado para ver este préstamo');
+    }
+    
+    return loan;
   }
 
+  @UseGuards(ClientAuthGuard)
+  @Get('client/:client_id')
+  async LoansByClient(
+    @Param('client_id') clientId: string,
+    @CurrentUser() user: any
+  ) {
+    const loans = await this.loanService.getAllLoansByUserId(clientId);
+
+    // Si es un cliente, solo puede ver sus propios préstamos
+    if (user.type === 'client' && loans.data.some(loan => loan.userId !== user.id)) {
+      throw new BadRequestException('No autorizado para ver estos préstamos');
+    }
+
+    return loans;
+  }
+
+  // Clientes pueden ver sus propios préstamos
+  @UseGuards(ClientAuthGuard)
   @Get('user/:userId')
-  async findByUser(@Param('userId', ParseUUIDPipe) userId: string) {
+  async findByUser(
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @CurrentUser() user: any
+  ) {
+    // Si es un cliente, solo puede ver sus propios préstamos
+    if (user.type === 'client' && userId !== user.id) {
+      throw new BadRequestException('No autorizado para ver préstamos de otros usuarios');
+    }
+    
     return this.loanService.getAllByUserId(userId);
   }
 
+  // Solo personal de intranet puede actualizar préstamos
+  @UseGuards(IntranetAuthGuard, RolesGuard)
+  @Roles('admin', 'employee')
   @Patch(':id')
   async update(
     @Param('id', ParseUUIDPipe) id: string,
@@ -97,6 +162,9 @@ export class LoanController {
     return this.loanService.update(id, updateLoanDto);
   }
 
+  // Solo personal de intranet puede cambiar el estado de préstamos
+  @UseGuards(IntranetAuthGuard, RolesGuard)
+  @Roles('admin', 'employee')
   @Patch(':id/status')
   async changeStatus(
     @Param('id', ParseUUIDPipe) id: string,
@@ -105,6 +173,9 @@ export class LoanController {
     return this.loanService.changeStatus(id, changeStatusDto);
   }
 
+  // Solo personal de intranet puede rechazar préstamos
+  @UseGuards(IntranetAuthGuard, RolesGuard)
+  @Roles('admin', 'employee')
   @Patch(':id/reject')
   async changeReject(
     @Param('id', ParseUUIDPipe) id: string,
@@ -113,33 +184,63 @@ export class LoanController {
     return this.loanService.changeReject(id, reason);
   }
 
+  // Solo personal de intranet puede asignar empleados a préstamos
+  @UseGuards(IntranetAuthGuard, RolesGuard)
+  @Roles('admin', 'employee')
   @Patch(':id/employee/:employeeId')
   async fillEmployeeId(
     @Param('id', ParseUUIDPipe) id: string,
     @Param('employeeId', ParseUUIDPipe) employeeId: string,
+    @CurrentUser() user: any
   ) {
+    // Si es un empleado, solo puede asignarse a sí mismo
+    if (user.rol === 'employee' && employeeId !== user.id) {
+      throw new BadRequestException('No autorizado para asignar a otros empleados');
+    }
+    
     return this.loanService.fillEmployeeId(id, employeeId);
   }
 
+  // Solo personal de intranet puede cambiar la cantidad de un préstamo
+  @UseGuards(IntranetAuthGuard, RolesGuard)
+  @Roles('admin', 'employee')
   @Patch(':id/cantity')
   async changeCantity(
     @Param('id', ParseUUIDPipe) id: string,
     @Body('newCantity') newCantity: string,
     @Body('reasonChangeCantity') reasonChangeCantity: string,
     @Body('employeeId') employeeId: string,
+    @CurrentUser() user: any
   ) {
+    // Si es un empleado, solo puede usar su propio ID
+    if (user.rol === 'employee' && employeeId !== user.id) {
+      throw new BadRequestException('Debe usar su propio ID de empleado');
+    }
+    
     return this.loanService.changeCantity(id, newCantity, reasonChangeCantity, employeeId);
   }
 
+  // Los clientes pueden responder a ofertas de nueva cantidad
+  @UseGuards(ClientAuthGuard)
   @Patch(':id/respond-cantity')
   async respondToNewCantity(
     @Param('id', ParseUUIDPipe) id: string,
     @Body('accept', ParseBoolPipe) accept: boolean,
     @Body('status') status: StatusLoan,
+    @CurrentUser() user: any
   ) {
+    // Verificar que el préstamo pertenece al cliente
+    const loan = await this.loanService.get(id);
+    if (user.type === 'client' && loan.userId !== user.id) {
+      throw new BadRequestException('No autorizado para responder a este préstamo');
+    }
+    
     return this.loanService.respondToNewCantity(id, accept, status);
   }
 
+  // Solo administradores pueden eliminar préstamos
+  @UseGuards(IntranetAuthGuard, RolesGuard)
+  @Roles('admin')
   @Delete(':id')
   async remove(@Param('id', ParseUUIDPipe) id: string) {
     return this.loanService.delete(id);

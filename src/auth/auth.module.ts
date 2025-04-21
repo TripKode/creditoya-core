@@ -10,6 +10,11 @@ import { LocalIntranetStrategy } from './strategies/local-intranet.strategy';
 import { LocalClientStrategy } from './strategies/local-client.strategy';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { RedisModule } from 'src/redis/redis.module';
+import { ClientService } from 'src/client/client.service';
+import { ClientModule } from 'src/client/client.module';
+import { MailModule } from 'src/mail/mail.module';
+import { GoogleCloudModule } from 'src/gcp/gcp.module';
+import { CloudinaryModule } from 'src/cloudinary/cloudinary.module';
 
 @Module({
   imports: [
@@ -27,6 +32,10 @@ import { RedisModule } from 'src/redis/redis.module';
       isGlobal: true,
     }),
     RedisModule,
+    ClientModule,
+    MailModule,
+    GoogleCloudModule,
+    CloudinaryModule
   ],
   controllers: [AuthController],
   providers: [
@@ -35,6 +44,7 @@ import { RedisModule } from 'src/redis/redis.module';
     LocalIntranetStrategy,
     JwtClientStrategy,
     JwtIntranetStrategy,
+    ClientService
   ],
 })
 export class AuthModule { }

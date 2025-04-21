@@ -18,7 +18,6 @@ export class UpdatePasswordDto {
 
 export class UpdateDocumentDto {
   documentSides: string;
-  number: string;
 }
 
 export class RejectReasonDto {

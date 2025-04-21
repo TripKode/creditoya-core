@@ -1,9 +1,12 @@
 import { Controller, Post, Get, Body, Param, UseGuards, Logger } from '@nestjs/common';
 import { BackupService } from './backup.service';
 import { IntranetAuthGuard } from 'src/auth/guards/intranet-auth.guard';
+import { RolesGuard } from 'src/auth/guards/roles.guard';
+import { Roles } from 'src/auth/decorators/roles.decorator';
 
 @Controller('admin/database')
-// @UseGuards(IntranetAuthGuard)
+@UseGuards(IntranetAuthGuard, RolesGuard)
+@Roles('admin') // Solo administradores
 export class BackupController {
   private readonly logger = new Logger(BackupController.name);
 

@@ -367,6 +367,81 @@ export class LoanService {
     return fetchLoans();
   }
 
+  /**
+   * Enhanced method to get all loans for a specific user with pagination and filtering options
+   * @param userId - The ID of the user whose loans we want to retrieve
+   * @param page - Page number for pagination (default: 1)
+   * @param pageSize - Number of items per page (default: 10)
+   * @param status - Optional filter by loan status
+   * @returns Paginated loans and total count
+   */
+  async getAllLoansByUserId(
+    userId: string,
+    page: number = 1,
+    pageSize: number = 10,
+    status?: StatusLoan
+  ): Promise<{ data: LoanApplication[]; total: number }> {
+    // Create specific cache key based on all parameters
+    const statusPart = status ? `:${status}` : ':all';
+    const cacheKey = `${this.USER_LOANS_CACHE_PREFIX}${userId}:page${page}:size${pageSize}${statusPart}`;
+
+    return this.redisService.getOrSet(
+      cacheKey,
+      async () => {
+        try {
+          const skip = (page - 1) * pageSize;
+
+          // Build where clause
+          const where: Prisma.LoanApplicationWhereInput = { userId };
+
+          // Add status filter if provided
+          if (status) {
+            where.status = status;
+          }
+
+          // Count total matching loans for pagination
+          const total = await this.prisma.loanApplication.count({ where });
+
+          // Get loan applications with pagination
+          const loans = await this.prisma.loanApplication.findMany({
+            where,
+            include: {
+              user: true,
+              GeneratedDocuments: true
+            },
+            orderBy: {
+              created_at: 'desc' // Most recent first
+            },
+            skip,
+            take: pageSize
+          });
+
+          this.logger.log(`Found ${total} loan applications for user ${userId}`);
+
+          // Process loans to include document info if needed
+          const processedLoans = await Promise.all(
+            loans.map(async (loan) => {
+              // If there are generated documents and we want to process them further
+              if (loan.GeneratedDocuments && loan.GeneratedDocuments.length > 0) {
+                loan.GeneratedDocuments = loan.GeneratedDocuments.map(doc => ({
+                  ...doc,
+                  // Add any additional processing here if needed
+                }));
+              }
+              return loan;
+            })
+          );
+
+          return { data: processedLoans, total };
+        } catch (error) {
+          this.logger.error(`Error fetching loans for user ${userId}:`, error);
+          throw new BadRequestException(`Error al obtener los préstamos del usuario: ${error.message}`);
+        }
+      },
+      this.CACHE_TTL
+    );
+  }
+
   // Método para obtener las solicitudes de préstamo con estado "Pendiente"
   async getPendingLoans(
     page: number = 1,
