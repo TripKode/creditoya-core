@@ -64,18 +64,19 @@ export type User = {
     currentCompany: UserCompany;
     avatar: string;
     phone: string;
-    residencePhoneNumber: string;
-    whatsappPhone: string;
-    birthDate?: Date;
+    residence_phone_number: string;
+    phone_whatsapp: string;
+    birth_day?: Date;
+    place_of_birth?: string;
     gender: string;
-    residenceAddress: string;
+    residence_address: string;
     city: string;
     isBanned?: boolean;
     createdAt: Date;
     updatedAt: Date;
 
     // Relations
-    documents: Document[];
+    Document: Document[];
     loanApplications: ILoanApplication[];
 }
 
@@ -83,9 +84,9 @@ export type Document = {
     id: string;
     userId: string;
     documentSides: string;
-    uploadId: string;
+    upId: string;
     imageWithCC: string;
-    documentType: DocumentType;
+    typeDocument: DocumentType;
     number: string;
     createdAt: Date;
     updatedAt: Date;

@@ -1,42 +1,76 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { User, Document, Prisma } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { RedisService } from 'src/redis/redis.service';
 import { CreateClientDto } from './dto/create-client.dto';
-import { UpdateClientDto } from './dto/update-client.dto';
+import { MailService } from 'src/mail/mail.service';
+import { GoogleCloudService } from 'src/gcp/gcp.service';
+import * as uuid from "uuid"
+import { FileToString } from 'handlers/FileToString';
+import { CloudinaryService, FolderNames } from 'src/cloudinary/cloudinary.service';
 
 @Injectable()
 export class ClientService {
+  private logger = new Logger(ClientService.name);
+
   constructor(
     private prisma: PrismaService,
-    private redis: RedisService
+    private redis: RedisService,
+    private mail: MailService,
+    private googleCloud: GoogleCloudService,
+    private cloudinary: CloudinaryService,
   ) { }
 
   async create(data: CreateClientDto): Promise<User> {
+
     const existEmail = await this.prisma.user.findUnique({
-      where: { email: data.email },
+      where: { email: data.email.trim() },
     });
 
     if (existEmail) {
       throw new Error('El correo electrónico ya está en uso');
     }
 
+    if (data.password.length < 6) {
+      throw new Error("La contraseña debe tener minimo 6 caracteres");
+    }
+
     const hashedPassword = await bcrypt.hash(data.password, 10);
 
-    const newUser = await this.prisma.user.create({
-      data: {
-        ...data,
-        password: hashedPassword,
-        Document: {
-          create: {},
+    const newUser = await this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.create({
+        data: {
+          names: data.names.trim(),
+          firstLastName: data.firstLastName.trim(),
+          secondLastName: data.secondLastName.trim(),
+          email: data.email.trim(),
+          password: hashedPassword,
+          Document: {
+            create: {},
+          },
         },
-      },
+      });
+
+      return user;
     });
 
-    // Invalidar caché relacionada con listados de usuarios
-    await this.redis.delByPattern('users:*');
-    await this.redis.delByPattern('clients:all:*');
+    try {
+      await this.mail.newClientMail({
+        mail: data.email.trim(),
+        completeName: `${data.names} ${data.firstLastName} ${data.secondLastName}`
+      });
+    } catch (emailError) {
+      // Log the error but don't throw it to ensure user creation isn't affected
+      console.error('Error sending welcome email, but user was created:', emailError);
+      // Consider adding email to a resend queue or tracking failed emails
+    }
+
+    // Step 5: Invalidate cache
+    await Promise.all([
+      this.redis.delByPattern('users:*'),
+      this.redis.delByPattern('clients:all:*')
+    ]);
 
     return newUser;
   }
@@ -49,9 +83,11 @@ export class ClientService {
       async () => {
         return this.prisma.user.findUnique({
           where: { id },
-          include: { Document: true, LoanApplication: {
-            include: { GeneratedDocuments: true }
-          }},
+          include: {
+            Document: true, LoanApplication: {
+              include: { GeneratedDocuments: true }
+            }
+          },
         });
       },
       7200 // 2 horas de TTL
@@ -244,7 +280,7 @@ export class ClientService {
 
   async update(
     id: string,
-    data: UpdateClientDto,
+    data: Omit<User, 'password'>,
   ): Promise<User> {
     const updatedUser = await this.prisma.user.update({ where: { id }, data });
 
@@ -263,6 +299,30 @@ export class ClientService {
     });
 
     // No es necesario invalidar caché ya que el password no se guarda en caché
+
+    return updatedUser;
+  }
+
+  async updateAvatar(id: string, avatar: Express.Multer.File): Promise<User> {
+    const user = await this.prisma.user.findUnique({ where: { id } });
+
+    if (!user) {
+      throw new Error('Usuario no encontrado');
+    }
+
+    const imageBase64 = await FileToString(avatar);
+    const folder: FolderNames = 'avatars_users';
+    const publicId = `avatar.${id}`; // Generar un nuevo ID único para la imagen
+    const urlImage = await this.cloudinary.uploadImage(imageBase64, folder, publicId);
+
+    const updatedUser = await this.prisma.user.update({
+      where: { id },
+      data: { avatar: urlImage },
+    });
+
+    // Invalidar caché
+    await this.redis.del(`user:${id}`);
+    await this.redis.delByPattern('users:*');
 
     return updatedUser;
   }
@@ -315,42 +375,140 @@ export class ClientService {
     );
   }
 
-  async updateDocument(
-    userId: string,
-    documentSides: string,
-    number: string,
-  ): Promise<User | null> {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      include: { Document: true },
+  async updateDocument(userId: string, documentSides: Express.Multer.File): Promise<User | null> {
+    try {
+      this.logger.log(`Iniciando actualización de documento para usuario ${userId}`);
+
+      // Verificar que documentSides no sea null/undefined
+      if (!documentSides || !documentSides.buffer) {
+        this.logger.error('El archivo es inválido o está vacío');
+        throw new Error('El archivo de documento es inválido');
+      }
+
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        include: { Document: true },
+      });
+
+      this.logger.log(`Usuario encontrado: ${!!user}, documentos: ${user?.Document?.length || 0}`);
+
+      if (!user) throw new Error('Usuario no encontrado');
+      if (!user.Document || user.Document.length === 0) {
+        throw new Error('Usuario no tiene documentos registrados');
+      }
+
+      // Crear un ID único para el documento
+      const upId = uuid.v4();
+      this.logger.log(`ID generado para el documento: ${upId}`);
+
+      // Preparar y verificar los datos antes de la subida
+      this.logger.log('Preparando subida a GCS:', {
+        fileSize: documentSides.size,
+        mimeType: documentSides.mimetype,
+        fileName: `ccScans-${userId}-${upId}.pdf`
+      });
+
+      // Subida de PDF a Google Cloud con mejor manejo de errores
+      const uploadResult = await this.googleCloud.uploadToGcs({
+        file: documentSides,
+        userId,
+        name: 'ccScans',
+        upId,
+        contentType: documentSides.mimetype,
+      }).catch((error) => {
+        // Log detallado del error
+        this.logger.error(`Error específico en uploadToGcs: ${error.message}`, error);
+
+        // Si es un error de autenticación o permisos
+        if (error.message && error.message.includes('permission') || error.message.includes('auth')) {
+          this.logger.error('Error de permisos o autenticación con Google Cloud');
+        }
+
+        // Si es un error de bucket no encontrado
+        if (error.message && error.message.includes('bucket') || error.message.includes('not found')) {
+          this.logger.error('Error con el bucket de Google Cloud');
+        }
+
+        return null;
+      });
+
+      this.logger.log('Resultado de la subida:', uploadResult);
+
+      if (!uploadResult || typeof uploadResult !== 'object') {
+        throw new Error('Error al subir el documento a Google Cloud Storage');
+      }
+
+      const { success, public_name } = uploadResult;
+
+      this.logger.warn('Subida de documento a Google Cloud Storage:', { success, public_name });
+
+      if (!success || !public_name) throw new Error('Error al subir el documento a Google Cloud Storage');
+
+      // Actualiza los documentos del usuario
+      try {
+        const updatedDocuments = await Promise.all(user.Document.map((document) =>
+          this.prisma.document.update({
+            where: { id: document.id },
+            data: {
+              documentSides: public_name,
+              upId,
+            },
+          })
+        ));
+
+        this.logger.warn('Documentos actualizados correctamente:', updatedDocuments.length);
+
+        // Invalidar caché relacionada con documentos
+        await this.redis.del(`user:${userId}`);
+        await this.redis.del(`user:${userId}:has-document-data`);
+        await this.redis.delByPattern(`user:${userId}:documents:*`);
+
+        this.logger.log('Caché invalidada correctamente');
+
+        const updatedUser = await this.prisma.user.findUnique({
+          where: { id: userId },
+          include: { Document: true },
+        });
+
+        this.logger.log('Usuario actualizado recuperado correctamente');
+
+        return updatedUser;
+      } catch (dbError) {
+        this.logger.error('Error actualizando los documentos en la base de datos:', dbError);
+        throw new Error(`Error al actualizar los documentos: ${dbError.message}`);
+      }
+    } catch (error) {
+      this.logger.error(`Error general en updateDocument: ${error.message}`, error);
+      throw error;
+    }
+  }
+
+  async updateImageWithCC(userId: string, imageWithCC: Express.Multer.File): Promise<Document | null> {
+    const document = await this.prisma.document.findFirst({
+      where: { userId },
     });
 
-    if (!user) {
-      throw new Error('Usuario no encontrado');
+    if (!document) {
+      throw new Error('No se encontró documento para este usuario');
     }
 
-    // Actualiza los documentos del usuario
-    const updatedDocuments = user.Document.map((document) =>
-      this.prisma.document.update({
-        where: { id: document.id },
-        data: {
-          documentSides,
-          number,
-        },
-      }),
-    );
+    const imageBase64 = await FileToString(imageWithCC);
+    const folder = 'images_with_cc';
+    const publicId = `avatar.${userId}`; // Generar un nuevo ID único para la imagen
+    const urlImage = await this.cloudinary.uploadImage(imageBase64, folder, publicId);
 
-    await Promise.all(updatedDocuments);
+    const updatedDocument = await this.prisma.document.update({
+      where: { id: document.id },
+      data: { imageWithCC: urlImage },
+    });
 
     // Invalidar caché relacionada con documentos
     await this.redis.del(`user:${userId}`);
     await this.redis.del(`user:${userId}:has-document-data`);
+    await this.redis.del(`user:${userId}:document`);
     await this.redis.delByPattern(`user:${userId}:documents:*`);
 
-    return this.prisma.user.findUnique({
-      where: { id: userId },
-      include: { Document: true },
-    });
+    return updatedDocument;
   }
 
   async listDocuments(userId: string): Promise<Document[]> {

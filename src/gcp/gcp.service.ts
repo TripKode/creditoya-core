@@ -4,11 +4,12 @@ import DecryptJson from 'handlers/decryptJson';
 import { CREDENTIAL_GCP, GpcTypes } from 'templates/cloud';
 
 export interface PropsUpload {
-  file: File;
+  file: Express.Multer.File;
   userId: string;
   name: string;
   upId: string;
   contentType?: string
+  isBackup?: boolean;
 }
 
 export interface PropsDelete {
@@ -31,16 +32,29 @@ export class GoogleCloudService {
    * Crea una instancia de Storage utilizando las credenciales desencriptadas.
    */
   private getStorageInstance(): Storage {
-    const EnCredential = this.credential.k;
-    const decryptedCredentials = DecryptJson({
-      encryptedData: EnCredential,
-      password: process.env.KEY_DECRYPT as string,
-    });
+    this.logger.log('Iniciando obtención de instancia de Storage');
+    try {
+      const EnCredential = this.credential.k;
+      this.logger.log('Credenciales obtenidas, procediendo a desencriptar');
 
-    return new Storage({
-      projectId: process.env.PROJECT_ID_GOOGLE,
-      credentials: decryptedCredentials,
-    });
+      const decryptedCredentials = DecryptJson({
+        encryptedData: EnCredential,
+        password: process.env.KEY_DECRYPT as string,
+      });
+
+      this.logger.log('Credenciales desencriptadas correctamente');
+
+      const storage = new Storage({
+        projectId: process.env.PROJECT_ID_GOOGLE,
+        credentials: decryptedCredentials,
+      });
+
+      this.logger.log('Instancia de Storage creada exitosamente');
+      return storage;
+    } catch (error) {
+      this.logger.error('Error al obtener instancia de Storage:', error);
+      throw error;
+    }
   }
 
   /**
@@ -48,64 +62,104 @@ export class GoogleCloudService {
    * @param param0 Datos necesarios para subir el archivo.
    * @returns Un objeto indicando el éxito y el nombre público del archivo.
    */
+  /**
+   * Sube un archivo a Google Cloud Storage.
+   * @param param0 Datos necesarios para subir el archivo.
+   * @returns Un objeto indicando el éxito y el nombre público del archivo.
+   * @throws Error si falla la subida del archivo
+   */
   async uploadToGcs({
     file,
     userId,
     name,
     upId,
     contentType,
-  }: PropsUpload): Promise<{ success: boolean; public_name?: string }> {
+    isBackup = false,
+  }: PropsUpload): Promise<{ success: boolean; public_name: string }> {
+    // Validaciones iniciales con mensajes de error específicos
+    if (!file) {
+      this.logger.error('Error: No se proporcionó un archivo');
+      throw new Error('No se proporcionó un archivo');
+    }
+
+    if (!file.buffer || file.size < 1) {
+      this.logger.error('Error: El archivo está vacío o no tiene buffer');
+      throw new Error('El archivo está vacío o inválido');
+    }
+
     try {
-      if (!file) {
-        throw new Error('No se proporcionó un archivo');
-      }
-      if (file.size < 1) {
-        throw new Error('El archivo está vacío');
-      }
+      // Determinar el bucket correcto
+      const bucketName = isBackup
+        ? process.env.NAME_BUCKET_GOOGLE_STORAGE
+        : process.env.NAME_BUCKET_GOOGLE_STORAGE_DOCS;
 
-      // Convertir el archivo a buffer
-      const buffer = await file.arrayBuffer();
-
-      const storage = this.getStorageInstance();
-      const bucketName = process.env.NAME_BUCKET_GOOGLE_STORAGE as string;
-
-      // Determinar la extensión basada en el contentType
-      let extension = '.pdf'; // Por defecto usa .pdf
-      if (contentType === 'application/zip') {
-        extension = '.zip';
-      } else if (contentType) {
-        // Si se proporciona un contentType diferente, extraer la extensión adecuada
-        const mimeToExt: { [key: string]: string } = {
-          'application/pdf': '.pdf',
-          'application/zip': '.zip',
-          'application/gzip': '.gz',
-          'application/x-gzip': '.gz'
-          // Añadir más tipos MIME según sea necesario
-        };
-        extension = mimeToExt[contentType] || '.pdf';
+      if (!bucketName) {
+        this.logger.error(`Error: Falta configuración del bucket (isBackup: ${isBackup})`);
+        throw new Error('Configuración de bucket no encontrada');
       }
 
+      // Mapeo de tipos MIME a extensiones de archivo
+      const mimeToExt: Record<string, string> = {
+        'application/pdf': '.pdf',
+        'application/zip': '.zip',
+        'application/gzip': '.gz',
+        'application/x-gzip': '.gz',
+        'image/jpeg': '.jpg',
+        'image/png': '.png',
+        'application/msword': '.doc',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx'
+      };
+
+      // Obtener la extensión basada en el contentType
+      const extension = contentType ? (mimeToExt[contentType] || '.pdf') : '.pdf';
       const fileName = `${name}-${userId}-${upId}${extension}`;
 
-      // Subir el archivo al bucket con metadatos que incluyen el tipo de contenido
+      this.logger.log(`Intentando subir archivo ${fileName} al bucket ${bucketName}`);
+
+      // Obtener instancia de Storage
+      const storage = this.getStorageInstance();
+      if (!storage) {
+        throw new Error('No se pudo inicializar la instancia de Storage');
+      }
+
+      // Convertir a buffer de forma segura (evitando doble conversión)
+      const buffer = file.buffer instanceof Buffer ? file.buffer : Buffer.from(file.buffer);
+
+      // Subir el archivo con un Promise adecuado
       await storage
         .bucket(bucketName)
         .file(fileName)
-        .save(Buffer.from(buffer), {
+        .save(buffer, {
           metadata: {
-            contentType: contentType || file.type || 'application/octet-stream'
-          }
+            contentType: contentType || 'application/octet-stream'
+          },
+          resumable: file.size > 5 * 1024 * 1024 // Usar resumable para archivos >5MB
         });
+
+      this.logger.log(`Archivo subido exitosamente: ${fileName}`);
+
+      const public_name = `https://storage.googleapis.com/${bucketName}/${fileName}`;
 
       return {
         success: true,
-        public_name: fileName,
+        public_name: fileName
       };
     } catch (error) {
-      this.logger.error('Error al subir el archivo a GCS:', error);
-      throw error;
+      // Logging detallado del error
+      const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
+      this.logger.error(`Error al subir archivo a GCS (${name}-${userId}): ${errorMessage}`, error);
+
+      // Re-lanzar el error con información específica
+      throw new Error(`Error al subir el archivo a Google Cloud Storage: ${errorMessage}`);
     }
   }
+
+  /**
+   * Obtiene un archivo de Google Cloud Storage.
+   * @param fileName Nombre del archivo a obtener.
+   * @returns El contenido del archivo como Buffer.
+   */
+  // async getFileGcs(fileName: string): Promise<Buffer> {}
 
   /**
    * Elimina un archivo de Google Cloud Storage.

@@ -10,7 +10,11 @@ import {
   HttpException,
   HttpStatus,
   UseGuards,
+  UseInterceptors,
+  UploadedFile,
+  Logger,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { ClientService } from './client.service';
 import { User, Document } from '@prisma/client';
 import { ClientAuthGuard } from '../auth/guards/client-auth.guard';
@@ -19,10 +23,10 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { RejectReasonDto, UpdateDocumentDto, UpdatePasswordDto, CreateClientDto } from './dto/create-client.dto';
-import { UpdateClientDto } from './dto/update-client.dto';
 
 @Controller('clients')
 export class ClientController {
+  private logger = new Logger(ClientController.name);
   constructor(private readonly clientService: ClientService) { }
 
   @Post()
@@ -34,8 +38,8 @@ export class ClientController {
     }
   }
 
-  // Acceso solo para clientes o intranet
-  @UseGuards(IntranetAuthGuard)
+  // Acceso solo para clientes
+  @UseGuards(ClientAuthGuard)
   @Get(':id')
   async get(
     @Param('id') id: string,
@@ -84,7 +88,7 @@ export class ClientController {
   @Put(':id')
   async update(
     @Param('id') id: string,
-    @Body() updateClientDto: UpdateClientDto,
+    @Body() dataUser: Omit<User, 'password'>,
     @CurrentUser() user: any,
   ): Promise<User> {
     // Verificar si el usuario está actualizando su propio perfil
@@ -93,7 +97,7 @@ export class ClientController {
     }
 
     try {
-      return await this.clientService.update(id, updateClientDto);
+      return await this.clientService.update(id, dataUser);
     } catch (error) {
       throw new HttpException(error.message, HttpStatus.BAD_REQUEST);
     }
@@ -151,29 +155,81 @@ export class ClientController {
     }
   }
 
-  // El cliente solo puede actualizar sus propios documentos
   @UseGuards(ClientAuthGuard)
-  @Put(':userId/document')
-  async updateDocument(
+  @Put(':userId/avatar')
+  @UseInterceptors(FileInterceptor('file'))
+  async updateAvatar(
     @Param('userId') userId: string,
-    @Body() updateDocumentDto: UpdateDocumentDto,
+    @UploadedFile() file: Express.Multer.File,
     @CurrentUser() user: any,
-  ): Promise<User> {
+  ) {
     // Verificar si el usuario está actualizando sus propios documentos
     if (user.type === 'client' && user.id !== userId) {
       throw new HttpException('No autorizado', HttpStatus.FORBIDDEN);
     }
 
+    const updateAvatar = this.clientService.updateAvatar(user.id, file);
+
+    // this.logger.warn("result update avatar: ", updateAvatar);
+
+    if (!updateAvatar) {
+      throw new HttpException('Error al actualizar el avatar', HttpStatus.BAD_REQUEST);
+    }
+
+    return updateAvatar;
+  }
+
+  // El cliente solo puede actualizar sus propios documentos
+  @UseGuards(ClientAuthGuard)
+  @Put(':userId/document')
+  @UseInterceptors(FileInterceptor('file'))
+  async updateDocument(
+    @Param('userId') userId: string,
+    @UploadedFile() file: Express.Multer.File,
+    @CurrentUser() user: any,
+  ): Promise<User> {
     try {
-      const userUpdated = await this.clientService.updateDocument(
-        userId,
-        updateDocumentDto.documentSides,
-        updateDocumentDto.number,
-      );
-      if (!userUpdated) {
-        throw new HttpException('Error al actualizar documento', HttpStatus.BAD_REQUEST);
+      this.logger.warn(file, userId, user);
+
+      // Verificar si el usuario está actualizando sus propios documentos
+      if (user.type === 'client' && user.id !== userId) {
+        throw new HttpException('No autorizado', HttpStatus.FORBIDDEN);
       }
-      return userUpdated;
+
+      const updatedDocument = await this.clientService.updateDocument(user.id, file);
+
+      this.logger.warn("result update doc: ", updatedDocument);
+
+      if (!updatedDocument) {
+        throw new HttpException('Error al actualizar el documento', HttpStatus.BAD_REQUEST);
+      }
+
+      return updatedDocument;
+    } catch (error) {
+      throw new HttpException(error.message, HttpStatus.BAD_REQUEST);
+    }
+  }
+
+  @UseGuards(ClientAuthGuard)
+  @Put(':userId/document/selfie')
+  @UseInterceptors(FileInterceptor('file'))
+  async updateSelfie(
+    @Param('userId') userId: string,
+    @UploadedFile() file: Express.Multer.File,
+    @CurrentUser() user: any,
+  ) {
+    try {
+      // Verificar si el usuario está actualizando sus propios documentos
+      if (user.type === 'client' && user.id !== userId) {
+        throw new HttpException('No autorizado', HttpStatus.FORBIDDEN);
+      }
+
+      // Si no hay archivo, lanzar error
+      if (!file) {
+        throw new HttpException('No se ha proporcionado ninguna imagen', HttpStatus.BAD_REQUEST);
+      }
+
+      return await this.clientService.updateImageWithCC(user.id, file);
     } catch (error) {
       throw new HttpException(error.message, HttpStatus.BAD_REQUEST);
     }
