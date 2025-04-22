@@ -30,7 +30,7 @@ export class ClientController {
   constructor(private readonly clientService: ClientService) { }
 
   @Post()
-  async create(@Body() createClientDto: CreateClientDto): Promise<User> {
+  async create(@Body() createClientDto: User): Promise<User> {
     try {
       return await this.clientService.create(createClientDto);
     } catch (error) {
