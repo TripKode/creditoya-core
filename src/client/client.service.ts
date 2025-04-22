@@ -22,7 +22,7 @@ export class ClientService {
     private cloudinary: CloudinaryService,
   ) { }
 
-  async create(data: CreateClientDto): Promise<User> {
+  async create(data: User): Promise<User> {
 
     const existEmail = await this.prisma.user.findUnique({
       where: { email: data.email.trim() },
@@ -44,6 +44,7 @@ export class ClientService {
           names: data.names.trim(),
           firstLastName: data.firstLastName.trim(),
           secondLastName: data.secondLastName.trim(),
+          currentCompanie: data.currentCompanie,
           email: data.email.trim(),
           password: hashedPassword,
           Document: {

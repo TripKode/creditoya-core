@@ -4,6 +4,7 @@ export class CreateClientDto {
   names: string;
   firstLastName: string;
   secondLastName: string;
+  currentCompanie: string
   phone?: string;
 };
 
