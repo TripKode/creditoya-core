@@ -13,9 +13,13 @@ import {
   BadRequestException,
   ParseUUIDPipe,
   UseGuards,
+  UseInterceptors,
+  UploadedFile,
+  HttpException,
+  HttpStatus,
+  UploadedFiles,
 } from '@nestjs/common';
 import { LoanService } from './loan.service';
-import { CreateLoanApplicationDto } from './dto/create-loan.dto';
 import { UpdateLoanApplicationDto } from './dto/update-loan.dto';
 import { ChangeLoanStatusDto } from './dto/change-loan-status.dto';
 import { StatusLoan } from '@prisma/client';
@@ -24,23 +28,59 @@ import { IntranetAuthGuard } from '../auth/guards/intranet-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { FileFieldsInterceptor, FileInterceptor } from '@nestjs/platform-express';
 
 @Controller('loans')
 export class LoanController {
   constructor(private readonly loanService: LoanService) { }
 
-  // Permitir a clientes crear solicitudes de préstamo
   @UseGuards(ClientAuthGuard)
-  @Post()
+  @Post(":userId")
+  @UseInterceptors(FileFieldsInterceptor([
+      { name: 'labor_card', maxCount: 1 },
+      { name: 'fisrt_flyer', maxCount: 1 },
+      { name: 'second_flyer', maxCount: 1 },
+      { name: 'third_flyer', maxCount: 1 }
+    ])
+  )
   async create(
-    @Body() createLoanDto: CreateLoanApplicationDto,
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @Body() body: {
+      signature: string,
+      entity: string,
+      bankNumberAccount: string,
+      cantity: string,
+      terms_and_conditions: boolean | string,
+      isValorAgregado?: boolean
+    },
+    @UploadedFiles() files: {
+      labor_card?: Express.Multer.File[],
+      fisrt_flyer?: Express.Multer.File[],  // Changed to match DTO
+      second_flyer?: Express.Multer.File[],
+      third_flyer?: Express.Multer.File[]
+    },
     @CurrentUser() user: any
   ) {
     // Asegurarse que el userId en el DTO coincide con el usuario autenticado
-    if (createLoanDto.userId !== user.id) {
-      throw new BadRequestException('No puede crear solicitudes para otros usuarios');
+    if (user.type === 'client' && user.id !== userId) {
+      throw new HttpException('No autorizado', HttpStatus.FORBIDDEN);
     }
-    return this.loanService.create(createLoanDto);
+
+    // Convert undefined to null to match the DTO expectations
+    return this.loanService.preCreate({
+      fisrt_flyer: files.fisrt_flyer?.[0] || null,  // Changed to match DTO
+      second_flyer: files.second_flyer?.[0] || null,
+      third_flyer: files.third_flyer?.[0] || null,
+      labor_card: files.labor_card?.[0] || null,
+      signature: body.signature,
+      userId,
+      // You may also need to include these other fields from the DTO
+      entity: body.entity, // This should come from request body
+      bankNumberAccount: body.bankNumberAccount, // This should come from request body
+      cantity: body.cantity, // This should come from request body
+      terms_and_conditions: body.terms_and_conditions === 'true' || body.terms_and_conditions === true, // Ensure boolean type
+      isValorAgregado: body.isValorAgregado || undefined, // Optional field
+    });
   }
 
   // Solo personal de intranet puede ver todas las solicitudes
@@ -111,12 +151,12 @@ export class LoanController {
     @CurrentUser() user: any
   ) {
     const loan = await this.loanService.get(id);
-    
+
     // Si es un cliente, solo puede ver sus propios préstamos
     if (user.type === 'client' && loan.userId !== user.id) {
       throw new BadRequestException('No autorizado para ver este préstamo');
     }
-    
+
     return loan;
   }
 
@@ -147,7 +187,7 @@ export class LoanController {
     if (user.type === 'client' && userId !== user.id) {
       throw new BadRequestException('No autorizado para ver préstamos de otros usuarios');
     }
-    
+
     return this.loanService.getAllByUserId(userId);
   }
 
@@ -197,7 +237,7 @@ export class LoanController {
     if (user.rol === 'employee' && employeeId !== user.id) {
       throw new BadRequestException('No autorizado para asignar a otros empleados');
     }
-    
+
     return this.loanService.fillEmployeeId(id, employeeId);
   }
 
@@ -216,7 +256,7 @@ export class LoanController {
     if (user.rol === 'employee' && employeeId !== user.id) {
       throw new BadRequestException('Debe usar su propio ID de empleado');
     }
-    
+
     return this.loanService.changeCantity(id, newCantity, reasonChangeCantity, employeeId);
   }
 
@@ -234,7 +274,7 @@ export class LoanController {
     if (user.type === 'client' && loan.userId !== user.id) {
       throw new BadRequestException('No autorizado para responder a este préstamo');
     }
-    
+
     return this.loanService.respondToNewCantity(id, accept, status);
   }
 

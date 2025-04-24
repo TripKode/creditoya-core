@@ -61,11 +61,6 @@ export class GoogleCloudService {
    * Sube un archivo a Google Cloud Storage.
    * @param param0 Datos necesarios para subir el archivo.
    * @returns Un objeto indicando el éxito y el nombre público del archivo.
-   */
-  /**
-   * Sube un archivo a Google Cloud Storage.
-   * @param param0 Datos necesarios para subir el archivo.
-   * @returns Un objeto indicando el éxito y el nombre público del archivo.
    * @throws Error si falla la subida del archivo
    */
   async uploadToGcs({
@@ -142,7 +137,7 @@ export class GoogleCloudService {
 
       return {
         success: true,
-        public_name: fileName
+        public_name,
       };
     } catch (error) {
       // Logging detallado del error
@@ -154,6 +149,106 @@ export class GoogleCloudService {
     }
   }
 
+  async uploadDocsToLoan({
+    userId,
+    labor_card,
+    upid_labor_card,
+    fisrt_flyer,
+    upid_first_flyer,
+    second_flyer,
+    upid_second_flyer,
+    third_flyer,
+    upid_third_flyer,
+  }: {
+    userId: string
+    labor_card: Express.Multer.File | null,
+    upid_labor_card: string | null,
+    fisrt_flyer: Express.Multer.File | null,
+    upid_first_flyer: string | null,
+    second_flyer: Express.Multer.File | null,
+    upid_second_flyer: string | null,
+    third_flyer: Express.Multer.File | null,
+    upid_third_flyer: string | null,
+  }): Promise<{
+    labor_card: string | null,
+    fisrt_flyer: string | null,
+    second_flyer: string | null,
+    third_flyer: string | null,
+  }> {
+    this.logger.log('Iniciando carga de documentos de préstamo');
+    const contentType = 'application/pdf';
+
+    try {
+      const nameBucket = process.env.NAME_BUCKET_GOOGLE_STORAGE_DOCS;
+
+      // Objeto para almacenar los resultados de las subidas
+      const results: Record<string, string | null> = {
+        labor_card: null,
+        fisrt_flyer: null,
+        second_flyer: null,
+        third_flyer: null,
+      };
+
+      // Procesar cada archivo si no es null y tiene ID correspondiente
+      if (labor_card && upid_labor_card) {
+        const laborCardResult = await this.uploadToGcs({
+          file: labor_card,
+          userId,
+          name: 'labor_card',
+          upId: upid_labor_card,
+          contentType,
+        });
+        results.labor_card = laborCardResult.public_name;
+      }
+
+      if (fisrt_flyer && upid_first_flyer) {
+        const firstFlyerResult = await this.uploadToGcs({
+          file: fisrt_flyer,
+          userId,
+          name: 'paid_flyer_01',
+          upId: upid_first_flyer,
+          contentType,
+        });
+        results.fisrt_flyer = firstFlyerResult.public_name;
+      }
+
+      if (second_flyer && upid_second_flyer) {
+        const secondFlyerResult = await this.uploadToGcs({
+          file: second_flyer,
+          userId,
+          name: 'paid_flyer_02',
+          upId: upid_second_flyer,
+          contentType,
+        });
+        results.second_flyer = secondFlyerResult.public_name;
+      }
+
+      if (third_flyer && upid_third_flyer) {
+        const thirdFlyerResult = await this.uploadToGcs({
+          file: third_flyer,
+          userId,
+          name: 'paid_flyer_03',
+          upId: upid_third_flyer,
+          contentType,
+        });
+        results.third_flyer = thirdFlyerResult.public_name;
+      }
+
+      this.logger.log(`Documentos de préstamo cargados exitosamente para cliente: ${userId}`);
+
+      return {
+        labor_card: results.labor_card,
+        fisrt_flyer: results.fisrt_flyer,
+        second_flyer: results.second_flyer,
+        third_flyer: results.third_flyer,
+      };
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Error desconocido';
+      this.logger.error(`Error al cargar documentos de préstamo: ${errorMsg}`, error);
+      throw new Error(`Error al procesar documentos de préstamo: ${errorMsg}`);
+    }
+  }
+
   /**
    * Obtiene un archivo de Google Cloud Storage.
    * @param fileName Nombre del archivo a obtener.
@@ -162,30 +257,88 @@ export class GoogleCloudService {
   // async getFileGcs(fileName: string): Promise<Buffer> {}
 
   /**
-   * Elimina un archivo de Google Cloud Storage.
-   * @param param0 Datos necesarios para identificar el archivo a eliminar.
+   * Elimina un archivo de Google Cloud Storage usando su URL completa o mediante parámetros individuales.
+   * @param props Puede ser un objeto con la URL del archivo o los parámetros tradicionales (type, userId, upId)
    * @returns Un objeto indicando el éxito y un mensaje.
    */
-  async deleteFileGcs({ type, userId, upId }: PropsDelete): Promise<{ success: boolean; message: string }> {
+  async deleteFileGcs(props: { fileUrl: string } | PropsDelete): Promise<{ success: boolean; message: string }> {
     try {
       const storage = this.getStorageInstance();
-      const bucketName = process.env.NAME_BUCKET_GOOGLE_STORAGE as string;
-      const fileName = `${type}-${userId}-${upId}.pdf`;
-      const file = storage.bucket(bucketName).file(fileName);
+      let bucketName: string;
+      let fileName: string;
 
-      await file.delete();
+      // Comprobar si estamos recibiendo una URL o los parámetros tradicionales
+      if ('fileUrl' in props) {
+        // Procesar URL completa: https://storage.googleapis.com/BUCKET_NAME/FILE_NAME
+        const url = new URL(props.fileUrl);
+
+        // La ruta comienza con '/' seguido del nombre del bucket y del archivo
+        const pathParts = url.pathname.split('/').filter(part => part !== '');
+
+        if (pathParts.length < 2) {
+          throw new Error('URL de archivo inválida. Formato esperado: https://storage.googleapis.com/BUCKET_NAME/FILE_NAME');
+        }
+
+        bucketName = pathParts[0];
+        // El nombre del archivo puede contener '/', así que unimos todas las partes restantes
+        fileName = pathParts.slice(1).join('/');
+
+        this.logger.log(`Eliminando archivo desde URL. Bucket: ${bucketName}, Archivo: ${fileName}`);
+      } else {
+        // Usar los parámetros tradicionales
+        const { type, userId, upId, contentType } = props;
+        bucketName = process.env.NAME_BUCKET_GOOGLE_STORAGE as string;
+
+        // Determinar la extensión correcta basada en contentType o usar PDF por defecto
+        const extension = contentType
+          ? this.getFileExtensionFromContentType(contentType)
+          : '.pdf';
+
+        fileName = `${type}-${userId}-${upId}${extension}`;
+
+        this.logger.log(`Eliminando archivo con parámetros. Bucket: ${bucketName}, Archivo: ${fileName}`);
+      }
+
+      // Validar que tenemos toda la información necesaria
+      if (!bucketName || !fileName) {
+        throw new Error('No se pudo determinar el bucket o nombre del archivo');
+      }
+
+      // Eliminar el archivo
+      await storage.bucket(bucketName).file(fileName).delete();
 
       return {
         success: true,
         message: `Archivo ${fileName} eliminado con éxito.`,
       };
     } catch (error) {
-      this.logger.error('Error al eliminar el archivo:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
+      this.logger.error(`Error al eliminar el archivo: ${errorMessage}`, error);
       return {
         success: false,
-        message: error instanceof Error ? error.message : 'Error desconocido',
+        message: errorMessage,
       };
     }
+  }
+
+  /**
+   * Obtiene la extensión de archivo basada en el tipo de contenido MIME.
+   * @param contentType Tipo de contenido MIME
+   * @returns La extensión de archivo correspondiente
+   */
+  private getFileExtensionFromContentType(contentType: string): string {
+    const mimeToExt: Record<string, string> = {
+      'application/pdf': '.pdf',
+      'application/zip': '.zip',
+      'application/gzip': '.gz',
+      'application/x-gzip': '.gz',
+      'image/jpeg': '.jpg',
+      'image/png': '.png',
+      'application/msword': '.doc',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx'
+    };
+
+    return mimeToExt[contentType] || '.pdf';
   }
 
   /**

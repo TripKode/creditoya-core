@@ -112,34 +112,35 @@ export type IntranetUser = {
 export type ILoanApplication = {
     id: string;
     userId: string;
-    employeeId?: string;
-    firstFlyer?: string;
-    firstFlyerUploadId?: string;
-    secondFlyer?: string;
-    secondFlyerUploadId?: string;
-    thirdFlyer?: string;
-    thirdFlyerUploadId?: string;
-    rejectionReason?: string;
-    amountChangeReason?: string;
-    requestedAmount: string;
-    newAmount?: string;
-    newAmountOption?: boolean;
-    hasBankSavingsAccount: boolean;
-    bankAccountNumber: string;
-    bankEntity: string;
-    laborCard?: string;
-    laborCardUploadId?: string;
-    hasAcceptedTerms: boolean;
+    employeeId?: string; // @default("Standby")
+    fisrt_flyer?: string;
+    upid_first_flayer?: string;
+    second_flyer?: string;
+    upid_second_flyer?: string;
+    third_flyer?: string;
+    upid_third_flayer?: string;
+    reasonReject?: string;
+    reasonChangeCantity?: string;
+    cantity: string;
+    newCantity?: string;
+    newCantityOpt?: boolean;
+    bankSavingAccount: boolean;
+    bankNumberAccount: string;
+    entity: string;
+    labor_card?: string;
+    upid_labor_card?: string;
+    terms_and_conditions: boolean;
     signature: string;
-    signatureUploadId: string;
+    upSignatureId: string;
     status: LoanStatus;
-    createdAt: Date;
-    updatedAt: Date;
+    created_at: Date;
+    updated_at: Date;
 
-    // Relations
+    // Relaciones
     user: User;
-    generatedDocuments: GeneratedDocument[];
-}
+    GeneratedDocuments: GeneratedDocument[];
+};
+
 
 export type GeneratedDocument = {
     id: string;

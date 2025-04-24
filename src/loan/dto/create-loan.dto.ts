@@ -1,72 +1,38 @@
-// src/modules/loan/dto/create-loan.dto.ts
-import { IsString, IsBoolean, IsOptional, IsNotEmpty } from 'class-validator';
-
 export class CreateLoanApplicationDto {
-  @IsNotEmpty()
-  @IsString()
   userId: string;
-
-  @IsOptional()
-  @IsString()
-  employeeId?: string;
-  
-  @IsOptional()
-  @IsString()
-  fisrt_flyer?: string;
-  
-  @IsOptional()
-  @IsString()
-  upid_first_flayer?: string;
-  
-  @IsOptional()
-  @IsString()
-  second_flyer?: string;
-  
-  @IsOptional()
-  @IsString()
-  upid_second_flyer?: string;
-  
-  @IsOptional()
-  @IsString()
-  third_flyer?: string;
-  
-  @IsOptional()
-  @IsString()
-  upid_third_flayer?: string;
-  
-  @IsNotEmpty()
-  @IsString()
-  cantity: string;
-  
-  @IsNotEmpty()
-  @IsBoolean()
-  bankSavingAccount: boolean;
-  
-  @IsNotEmpty()
-  @IsString()
-  bankNumberAccount: string;
-  
-  @IsNotEmpty()
-  @IsString()
   entity: string;
-  
-  @IsOptional()
-  @IsString()
-  labor_card?: string;
-  
-  @IsOptional()
-  @IsString()
-  upid_labor_card?: string;
-  
-  @IsNotEmpty()
-  @IsBoolean()
-  terms_and_conditions: boolean;
-  
-  @IsNotEmpty()
-  @IsString()
+  bankNumberAccount: string;
+  cantity: string;
   signature: string;
-  
-  @IsNotEmpty()
-  @IsString()
   upSignatureId: string;
+  terms_and_conditions: boolean;
+  labor_card: string | null;
+  upid_labor_card: string | null;
+  fisrt_flyer: string | null;
+  upid_first_flayer: string | null;
+  second_flyer: string | null;
+  uupid_second_flyer: string | null;
+  third_flyer: string | null;
+  upid_third_flayer: string | null;
+  isValorAgregado?: boolean;
+  created_at?: Date;
+  updated_at?: Date;
+}
+
+export class PreCreateLoanApplicationDto {
+  id?: string
+  userId: string;
+  entity: string;
+  bankNumberAccount: string;
+  cantity: string;
+  signature: string;
+  terms_and_conditions: boolean;
+  labor_card: Express.Multer.File | null;
+  fisrt_flyer: Express.Multer.File | null;
+  second_flyer: Express.Multer.File | null;
+  third_flyer: Express.Multer.File | null;
+  isValorAgregado?: boolean;
+  token: string;
+  created_at: Date;
+  updated_at: Date;
 }

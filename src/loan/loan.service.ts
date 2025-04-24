@@ -2,18 +2,21 @@ import { Injectable, NotFoundException, BadRequestException, Logger } from '@nes
 import { PrismaService } from 'src/prisma/prisma.service';
 import { RedisService } from 'src/redis/redis.service';
 import { GeneratedDocuments, LoanApplication, Prisma, StatusLoan } from '@prisma/client';
-import { CreateLoanApplicationDto } from './dto/create-loan.dto';
+import { CreateLoanApplicationDto, PreCreateLoanApplicationDto } from './dto/create-loan.dto';
 import { UpdateLoanApplicationDto } from './dto/update-loan.dto';
 import { ChangeLoanStatusDto } from './dto/change-loan-status.dto';
 import { MailService } from 'src/mail/mail.service';
 import { PdfsService } from 'src/pdfs/pdfs.service';
 import { GoogleCloudService } from 'src/gcp/gcp.service';
+import { RandomUpIdsGenerator } from 'handlers/GenerateUpIds';
+import { CloudinaryService } from 'src/cloudinary/cloudinary.service';
 
 @Injectable()
 export class LoanService {
   private logger = new Logger(LoanService.name);
   private readonly CACHE_TTL = 3600; // 1 hour in seconds
   private readonly LOAN_CACHE_PREFIX = 'loan:';
+  private readonly PRE_CACHE_LOAN_KEY = 'pre-loan:';
   private readonly LOANS_LIST_CACHE_KEY = 'loans:list';
   private readonly USER_LOANS_CACHE_PREFIX = 'user:loans:';
 
@@ -23,6 +26,7 @@ export class LoanService {
     private readonly mailService: MailService,
     private readonly pdfService: PdfsService,
     private readonly gcpService: GoogleCloudService,
+    private readonly cloudinary: CloudinaryService
   ) { }
 
   // Helper method to generate loan cache key
@@ -51,72 +55,105 @@ export class LoanService {
   }
 
   // Método para crear una solicitud de préstamo
-  async create(data: CreateLoanApplicationDto): Promise<LoanApplication> {
-    const { userId, ...loanApplicationDataWithoutUserId } = data;
-
+  private async create(data: CreateLoanApplicationDto): Promise<LoanApplication> {
     try {
-      const loanApplicationData = {
-        ...loanApplicationDataWithoutUserId,
-        user: {
-          connect: {
-            id: userId,
-          },
-        },
-      };
+      // Validación de documentos requeridos
+      if (!data.isValorAgregado && !data.fisrt_flyer && !data.second_flyer && !data.third_flyer) {
+        if (!data.labor_card) throw new BadRequestException("Porfavor sube los volantes de pago y la carta laboral");
+        throw new BadRequestException("Porfavor sube los volantes de pago");
+      }
 
+      // Crear el préstamo en la base de datos
       const newLoan = await this.prisma.loanApplication.create({
-        data: loanApplicationData,
+        data: {
+          // Conectar con el usuario usando el ID
+          user: {
+            connect: { id: data.userId },
+          },
+          // Datos principales del préstamo
+          entity: data.entity,
+          bankNumberAccount: data.bankNumberAccount,
+          cantity: data.cantity,
+          terms_and_conditions: data.terms_and_conditions,
+          signature: data.signature,
+          upSignatureId: data.upSignatureId,
+
+          // Documentos y sus IDs
+          fisrt_flyer: data.fisrt_flyer ?? null,
+          upid_first_flayer: data.upid_first_flayer ?? null,
+          second_flyer: data.second_flyer ?? null,
+          upid_second_flyer: data.uupid_second_flyer ?? null,
+          third_flyer: data.third_flyer ?? null,
+          upid_third_flayer: data.upid_third_flayer ?? null,
+          labor_card: data.labor_card ?? null,
+          upid_labor_card: data.upid_labor_card ?? null,
+        },
         include: { user: true },
       });
 
-      // Invalidate cache after new loan creation
+      // Invalidar cache después de crear el préstamo
       await this.invalidateLoanCache();
-      await this.redisService.del(this.getUserLoansCacheKey(userId));
+      await this.redisService.del(this.getUserLoansCacheKey(data.userId));
 
-      // Generate PDFs before sending email
+      // Generar PDFs antes de enviar el correo
       try {
-        // Fetch user details if needed for the PDFs
+        // Obtener detalles del usuario para los PDFs
         const user = await this.prisma.user.findUnique({
           where: {
-            id: userId,
-          }, include: { Document: true },
+            id: data.userId,
+          },
+          include: { Document: true },
         });
 
-        // Prepare document parameters
+        // Preparar parámetros de los documentos
         const documentsParams = [
-          // Promissory note document
+          // Documento sobre el préstamo
           {
-            name: `${user?.names} ${user?.firstLastName} ${user?.secondLastName}`,
-            numberDocument: user?.Document[0]?.number ?? '',
-            signature: newLoan.signature, // Assuming this is stored in the user model
-            payQuantity: `$${newLoan.cantity.toLocaleString()}`,
-            dayPay: new Date().toLocaleDateString(), // Current date as the signing date
-            documentType: 'promissory-note',
-            userId: userId, // Add userId to satisfy the interface
-          },
-          // Blank promissory note instructions
-          {
-            name: `${user?.names} ${user?.firstLastName} ${user?.secondLastName}`,
-            numberDocument: user?.Document[0]?.number as string,
+            documentType: 'about-loan',
             signature: newLoan.signature,
-            documentType: 'blank-instructions',
-            userId: userId, // Add userId to satisfy the interface
-          }
+            numberDocument: user?.Document[0]?.number ?? '',
+            entity: newLoan.entity,
+            accountNumber: newLoan.bankNumberAccount,
+            userId: data.userId,
+          } as any,
+          // Carta de instrucciones
+          {
+            documentType: 'instruction-letter',
+            signature: newLoan.signature,
+            numberDocument: user?.Document[0]?.number ?? '',
+            name: `${user?.names} ${user?.firstLastName} ${user?.secondLastName}`,
+            userId: data.userId,
+          } as any,
+          // Autorización de pago de salario
+          {
+            documentType: 'salary-payment-authorization',
+            signature: newLoan.signature,
+            numberDocument: user?.Document[0]?.number ?? '',
+            name: `${user?.names} ${user?.firstLastName} ${user?.secondLastName}`,
+            userId: data.userId,
+          } as any,
+          // Pagaré
+          {
+            documentType: 'promissory-note',
+            signature: newLoan.signature,
+            numberDocument: user?.Document[0]?.number ?? '',
+            name: `${user?.names} ${user?.firstLastName} ${user?.secondLastName}`,
+            userId: data.userId
+          } as any,
         ];
 
-        // Generate and upload PDFs
+        // Generar y subir PDFs
         await this.pdfService.generateAndUploadPdfs(
           documentsParams,
-          userId,
+          data.userId,
           newLoan.id
         );
       } catch (pdfError) {
-        // Log the error but continue with the process
+        // Registrar el error pero continuar con el proceso
         this.logger.error('Error generating PDFs for loan application', pdfError);
-        // Consider whether to fail the entire process or just continue
       }
 
-      // Send email to user with PDF information
+      // Enviar correo al usuario con información del PDF
       await this.mailService.sendMailByUser({
         subject: 'Solicitud de préstamo creada',
         content: `Su solicitud de préstamo ha sido creada con éxito. ID: ${newLoan.id}. Los documentos necesarios han sido generados y están disponibles en su cuenta.`,
@@ -126,6 +163,173 @@ export class LoanService {
       return newLoan;
     } catch (error) {
       throw new BadRequestException('Error al crear la solicitud de préstamo');
+    }
+  }
+
+  async preCreate(data: Partial<PreCreateLoanApplicationDto>) {
+    try {
+      // Check if we have a cached version first
+      return this.redisService.getOrSet(
+        `${this.PRE_CACHE_LOAN_KEY}${data.userId}`,
+        async () => {
+          // Validation of required documents
+          if (!data.isValorAgregado && !data.fisrt_flyer && !data.second_flyer && !data.third_flyer) {
+            if (!data.labor_card) throw new BadRequestException("Porfavor sube los volantes de pago y la carta laboral");
+            throw new BadRequestException("Porfavor sube los volantes de pago");
+          }
+
+          // Generate random IDs for documents
+          const {
+            upSignatureId,
+            upid_first_flayer,
+            uupid_second_flyer,
+            upid_third_flayer,
+            upid_labor_card
+          } = RandomUpIdsGenerator({
+            isSignature: true,
+            isLaborCard: data.labor_card !== null,
+            isFlyer: data.fisrt_flyer !== null
+              && data.second_flyer !== null
+              && data.third_flyer !== null,
+          });
+
+          const {
+            fisrt_flyer,
+            second_flyer,
+            third_flyer,
+            labor_card,
+          } = await this.gcpService.uploadDocsToLoan({
+            userId: data.userId as string,
+            fisrt_flyer: data.fisrt_flyer ?? null,
+            upid_first_flyer: upid_first_flayer ? upid_first_flayer : null,
+            second_flyer: data.second_flyer ? data.second_flyer : null,
+            upid_second_flyer: uupid_second_flyer ? uupid_second_flyer : null,
+            third_flyer: data.third_flyer ? data.third_flyer : null,
+            upid_third_flyer: upid_third_flayer ? upid_third_flayer : null,
+            labor_card: data.labor_card ? data.labor_card : null,
+            upid_labor_card: upid_labor_card ? upid_labor_card : null,
+          });
+
+          // Upload signature to Cloudinary
+          const resImage = await this.cloudinary.uploadImage(
+            data.signature as string,
+            'signatures',
+            `signature-${data.userId}-${upSignatureId}`
+          );
+
+          // Generate a 6-digit numeric token
+          const token = Math.floor(100000 + Math.random() * 900000).toString();
+
+          const preCreatedLoan = await this.prisma.preLoanApplication.create({
+            data: {
+              userId: data.userId as string,
+              entity: data.entity as string,
+              bankNumberAccount: data.bankNumberAccount as string,
+              cantity: data.cantity as string,
+              terms_and_conditions: data.terms_and_conditions as boolean,
+              fisrt_flyer: fisrt_flyer ?? null,
+              upid_first_flayer: upid_first_flayer ?? null,
+              second_flyer: second_flyer ?? null,
+              upid_second_flayer: uupid_second_flyer ?? null,
+              third_flyer: third_flyer ?? null,
+              upid_third_flayer: upid_third_flayer ?? null,
+              labor_card: labor_card ?? null,
+              upid_labor_card: upid_labor_card ?? null,
+              signature: resImage,
+              upSignatureId: upSignatureId as string,
+              token,
+            },
+            include: { user: true },
+          });
+
+          // send email to user with the token
+          await this.mailService.sendMailByUser({
+            subject: 'Solicitud de préstamo pre-creada',
+            content: `Su solicitud de préstamo ha sido pre-creada con éxito. ID: ${preCreatedLoan.id}. El token para verificar su solicitud es: ${token}`,
+            addressee: preCreatedLoan.user.email,
+          });
+
+          // Prepare the result to be cached
+          const result = {
+            success: true,
+            loanId: preCreatedLoan.id,
+            createdAt: preCreatedLoan.created_at
+          };
+
+          this.logger.log(`Pre-created loan application for user ${data.userId}`);
+          return result;
+        },
+        this.CACHE_TTL  // Use the same TTL as other methods
+      );
+    } catch (error) {
+      // If there's an error, make sure to delete any cached data
+      await this.redisService.del(`${this.PRE_CACHE_LOAN_KEY}${data.userId}`);
+
+      this.logger.error('Error pre-creating loan application:', error);
+      throw new BadRequestException('Error al pre-crear la solicitud de préstamo');
+    }
+  }
+
+  async verifyPreLoan(token: string, preId: string): Promise<CreateLoanApplicationDto> {
+    try {
+      // Check if we have a cached version first
+      return this.redisService.getOrSet(
+        `${this.PRE_CACHE_LOAN_KEY}${token}`,
+        async () => {
+          const preLoan = await this.prisma.preLoanApplication.findUnique({
+            where: { id: preId },
+            include: { user: true },
+          });
+
+          if (!preLoan) {
+            throw new NotFoundException('Solicitud de préstamo no encontrada');
+          }
+
+          // Check if the token is valid
+          if (preLoan.token !== token) {
+            throw new BadRequestException('Token inválido o ha expirado');
+          }
+
+          const bodyReqLoan: CreateLoanApplicationDto = {
+            userId: preLoan.userId,
+            entity: preLoan.entity,
+            bankNumberAccount: preLoan.bankNumberAccount,
+            cantity: preLoan.cantity,
+            terms_and_conditions: preLoan.terms_and_conditions,
+            fisrt_flyer: preLoan.fisrt_flyer,
+            upid_first_flayer: preLoan.upid_first_flayer,
+            second_flyer: preLoan.second_flyer,
+            uupid_second_flyer: preLoan.upid_second_flayer,
+            third_flyer: preLoan.third_flyer,
+            upid_third_flayer: preLoan.upid_third_flayer,
+            labor_card: preLoan.labor_card,
+            upid_labor_card: preLoan.upid_labor_card,
+            signature: preLoan.signature,
+            upSignatureId: preLoan.upSignatureId,
+          }
+
+          const newLoan = await this.create(bodyReqLoan);
+
+          if (!newLoan) {
+            throw new BadRequestException('Error al crear la solicitud de préstamo');
+          }
+
+          // Verificar registro con TripChain (BETA)
+
+          // Hash
+          // await this.prisma.preLoanApplication.update({
+          //   where: { id: preId },
+          //   data: { hash },
+          // });
+
+          // Return the data that was used to create the loan
+          return bodyReqLoan;
+        },
+        this.CACHE_TTL  // Use the same TTL as other methods
+      );
+    } catch (error) {
+      this.logger.error('Error verifying pre-loan:', error);
+      throw new BadRequestException('Error al verificar la solicitud de préstamo');
     }
   }
 
@@ -204,15 +408,29 @@ export class LoanService {
       // Verificar que la solicitud existe
       const existingLoan = await this.get(id);
 
+      // Extraer userId para posible uso en conexiones de relación
+      const { userId, ...updateData } = data;
+
+      // Preparar el objeto de actualización
+      const updateObject: any = { ...updateData };
+
+      // Si hay un userId, actualizar la relación con el usuario
+      if (userId) {
+        updateObject.user = {
+          connect: { id: userId }
+        };
+      }
+
+      // Actualizar el préstamo
       const updatedLoan = await this.prisma.loanApplication.update({
         where: { id },
-        data,
+        data: updateObject,
         include: {
           user: true,
         },
       });
 
-      // Invalidate cache after update
+      // Invalidar cache después de la actualización
       await this.invalidateLoanCache(id);
       await this.redisService.del(this.getUserLoansCacheKey(existingLoan.userId));
 
@@ -881,6 +1099,9 @@ export class LoanService {
 
       console.log(status, reasonReject, employeeId, reasonChangeCantity, newCantity);
 
+      // Capturar el estado anterior para invalidación condicional de caché
+      const previousStatus = existingLoan.status;
+
       const updatedLoan = await this.prisma.loanApplication.update({
         where: { id: loanApplicationId },
         data: {
@@ -896,22 +1117,53 @@ export class LoanService {
         },
       });
 
-      // Invalidate cache after status change
-      await this.invalidateLoanCache(loanApplicationId);
-      await this.redisService.del(this.getUserLoansCacheKey(existingLoan.userId));
+      // Invalidar la caché de manera más completa
+      try {
+        // Eliminar la caché individual del préstamo
+        await this.redisService.del(this.getLoanCacheKey(loanApplicationId));
 
-      const intraInfo = await this.prisma.usersIntranet.findFirst({
-        where: { id: updatedLoan.employeeId! },
-      })
+        // Eliminar la caché de préstamos del usuario
+        await this.redisService.del(this.getUserLoansCacheKey(existingLoan.userId));
 
-      if (updatedLoan.newCantity && updatedLoan.reasonChangeCantity && intraInfo) {
-        await this.mailService.sendChangeCantityMail({
-          employeeName: `${intraInfo.name} ${intraInfo.lastNames}`,
-          loanId: updatedLoan.id,
-          reason_aproved: updatedLoan.reasonChangeCantity,
-          cantity_aproved: updatedLoan.newCantity,
-          mail: updatedLoan.user.email,
+        // Invalidar caché general
+        await this.invalidateLoanCache(loanApplicationId);
+
+        // IMPORTANTE: Invalidar cachés específicas por estado
+        // Eliminar caché para el estado anterior
+        await this.redisService.delByPattern(`loans:${previousStatus}-only:*`);
+
+        // Eliminar caché para el nuevo estado
+        await this.redisService.delByPattern(`loans:${status}-only:*`);
+
+        // Eliminar caché específica para getPendingLoans
+        if (previousStatus === StatusLoan.Pendiente || status === StatusLoan.Pendiente) {
+          await this.redisService.delByPattern(`loans:pendiente-only:*`);
+        }
+
+        // Eliminar todas las cachés de listas paginadas
+        await this.redisService.delByPattern(`${this.LOANS_LIST_CACHE_KEY}:*`);
+
+        console.log(`Caché invalidada correctamente para el préstamo ${loanApplicationId}`);
+      } catch (redisError) {
+        console.error('Error al invalidar la caché de Redis:', redisError);
+        // Continuar con la operación aunque haya fallado la invalidación de la caché
+      }
+
+      // Procesar la notificación por correo electrónico si es necesario
+      if (updatedLoan.newCantity && updatedLoan.reasonChangeCantity && employeeId) {
+        const intraInfo = await this.prisma.usersIntranet.findFirst({
+          where: { id: employeeId },
         });
+
+        if (intraInfo) {
+          await this.mailService.sendChangeCantityMail({
+            employeeName: `${intraInfo.name} ${intraInfo.lastNames}`,
+            loanId: updatedLoan.id,
+            reason_aproved: updatedLoan.reasonChangeCantity,
+            cantity_aproved: updatedLoan.newCantity,
+            mail: updatedLoan.user.email,
+          });
+        }
       }
 
       return updatedLoan;
@@ -919,6 +1171,7 @@ export class LoanService {
       if (error instanceof NotFoundException) {
         throw error;
       }
+      console.error('Error detallado:', error);
       throw new BadRequestException('Error al cambiar el estado de la solicitud de préstamo');
     }
   }

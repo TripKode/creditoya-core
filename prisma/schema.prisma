@@ -8,26 +8,27 @@ datasource db {
 }
 
 model User {
-    id                     String            @id @default(uuid()) @map("_id")
+    id                     String               @id @default(uuid()) @map("_id")
     password               String
-    email                  String            @unique
+    email                  String               @unique
     names                  String
     firstLastName          String
     secondLastName         String
     currentCompanie        companiesUser
-    avatar                 String            @default("No definido")
-    phone                  String            @unique @default("No definido")
-    residence_phone_number String            @default("No definido")
-    phone_whatsapp         String            @default("No definido")
+    avatar                 String               @default("No definido")
+    phone                  String               @unique @default("No definido")
+    residence_phone_number String               @default("No definido")
+    phone_whatsapp         String               @default("No definido")
     birth_day              DateTime?
-    genre                  String            @default("No definido")
-    residence_address      String            @default("No definidos")
-    city                   String            @default("No definidos")
+    genre                  String               @default("No definido")
+    residence_address      String               @default("No definidos")
+    city                   String               @default("No definidos")
     Document               Document[]
     isBan                  Boolean?
-    createdAt              DateTime          @default(now())
-    updatedAt              DateTime          @updatedAt
+    createdAt              DateTime             @default(now())
+    updatedAt              DateTime             @updatedAt
     LoanApplication        LoanApplication[]
+    PreLoanApplication     PreLoanApplication[]
 }
 
 model Document {
@@ -55,6 +56,29 @@ model UsersIntranet {
     avatar     String   @default("No definido")
     updated_at DateTime @default(now())
     created_at DateTime @default(now())
+}
+
+model PreLoanApplication {
+    id                   String   @id @default(uuid()) @map("_id")
+    userId               String
+    user                 User     @relation(fields: [userId], references: [id])
+    bankNumberAccount    String
+    entity               String
+    labor_card           String?
+    upid_labor_card      String?
+    terms_and_conditions Boolean
+    fisrt_flyer          String?
+    upid_first_flayer    String?
+    second_flyer         String?
+    upid_second_flayer   String?
+    third_flyer          String?
+    upid_third_flayer    String?
+    signature            String
+    upSignatureId        String
+    cantity              String
+    token                String
+    created_at           DateTime @default(now())
+    updated_at           DateTime @updatedAt
 }
 
 model LoanApplication {
