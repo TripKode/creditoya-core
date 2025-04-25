@@ -704,7 +704,8 @@ export class PdfsService {
         userId,
         name: 'documents',
         upId: uploadId,
-        contentType: 'application/zip', // Explicitly set the content type
+        contentType: 'application/zip', // Explicitly set the content type,
+        isBackup: true // No es un Backup pero se guardan en ese bucket
       });
 
       // Extract document types for record keeping

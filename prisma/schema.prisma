@@ -84,14 +84,14 @@ model PreLoanApplication {
 model LoanApplication {
     id                   String               @id @default(uuid()) @map("_id")
     userId               String
-    employeeId           String?              @default("Standby")
+    employeeId           String?
     user                 User                 @relation(fields: [userId], references: [id])
     fisrt_flyer          String?
-    upid_first_flayer    String?
+    upid_first_flyer    String?
     second_flyer         String?
     upid_second_flyer    String?
     third_flyer          String?
-    upid_third_flayer    String?
+    upid_third_flyer    String?
     reasonReject         String?
     reasonChangeCantity  String?
     cantity              String

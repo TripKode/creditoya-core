@@ -10,6 +10,7 @@ import { PdfsService } from 'src/pdfs/pdfs.service';
 import { GoogleCloudService } from 'src/gcp/gcp.service';
 import { RandomUpIdsGenerator } from 'handlers/GenerateUpIds';
 import { CloudinaryService } from 'src/cloudinary/cloudinary.service';
+import { ILoanApplication, LoanStatus } from 'types/full';
 
 @Injectable()
 export class LoanService {
@@ -55,7 +56,7 @@ export class LoanService {
   }
 
   // Método para crear una solicitud de préstamo
-  private async create(data: CreateLoanApplicationDto): Promise<LoanApplication> {
+  private async create(data: CreateLoanApplicationDto): Promise<ILoanApplication> {
     try {
       // Validación de documentos requeridos
       if (!data.isValorAgregado && !data.fisrt_flyer && !data.second_flyer && !data.third_flyer) {
@@ -77,14 +78,15 @@ export class LoanService {
           terms_and_conditions: data.terms_and_conditions,
           signature: data.signature,
           upSignatureId: data.upSignatureId,
+          status: LoanStatus.PENDING, // Agregar estado por defecto
 
-          // Documentos y sus IDs
+          // Documentos y sus IDs - corregir typos y usar null en lugar de undefined
           fisrt_flyer: data.fisrt_flyer ?? null,
-          upid_first_flayer: data.upid_first_flayer ?? null,
+          upid_first_flyer: data.upid_first_flayer ?? null,
           second_flyer: data.second_flyer ?? null,
-          upid_second_flyer: data.uupid_second_flyer ?? null,
+          upid_second_flyer: data.uupid_second_flyer ?? null, // Corregido el typo
           third_flyer: data.third_flyer ?? null,
-          upid_third_flayer: data.upid_third_flayer ?? null,
+          upid_third_flyer: data.upid_third_flayer ?? null,
           labor_card: data.labor_card ?? null,
           upid_labor_card: data.upid_labor_card ?? null,
         },
@@ -160,7 +162,7 @@ export class LoanService {
         addressee: newLoan.user.email,
       });
 
-      return newLoan;
+      return newLoan as unknown as ILoanApplication; // Conversión de tipo necesaria
     } catch (error) {
       throw new BadRequestException('Error al crear la solicitud de préstamo');
     }
@@ -313,6 +315,14 @@ export class LoanService {
           if (!newLoan) {
             throw new BadRequestException('Error al crear la solicitud de préstamo');
           }
+
+          // Enviar correo al usuario con información del préstamo
+          await this.mailService.sendMailByUser({
+            subject: 'Solicitud de préstamo creada',
+            content: `Su solicitud de préstamo ha sido creada con éxito. ID: ${newLoan.id}. Los documentos necesarios han sido generados y están disponibles en su cuenta.`,
+            addressee: newLoan.user?.email as string,
+          })
+
 
           // Verificar registro con TripChain (BETA)
 

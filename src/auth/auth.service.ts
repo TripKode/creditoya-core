@@ -205,15 +205,8 @@ export class AuthService {
   async getClientProfile(userId: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: {
-        id: true,
-        email: true,
-        names: true,
-        firstLastName: true,
-        secondLastName: true,
-        avatar: true,
-        isBan: true,
-        // otros campos que quieras incluir pero NO la contraseña
+      include: {
+        LoanApplication: true,
       }
     });
 

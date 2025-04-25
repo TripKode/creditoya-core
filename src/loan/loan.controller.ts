@@ -14,7 +14,6 @@ import {
   ParseUUIDPipe,
   UseGuards,
   UseInterceptors,
-  UploadedFile,
   HttpException,
   HttpStatus,
   UploadedFiles,
@@ -37,13 +36,13 @@ export class LoanController {
   @UseGuards(ClientAuthGuard)
   @Post(":userId")
   @UseInterceptors(FileFieldsInterceptor([
-      { name: 'labor_card', maxCount: 1 },
-      { name: 'fisrt_flyer', maxCount: 1 },
-      { name: 'second_flyer', maxCount: 1 },
-      { name: 'third_flyer', maxCount: 1 }
-    ])
+    { name: 'labor_card', maxCount: 1 },
+    { name: 'fisrt_flyer', maxCount: 1 },
+    { name: 'second_flyer', maxCount: 1 },
+    { name: 'third_flyer', maxCount: 1 }
+  ])
   )
-  async create(
+  async PreCreateLoan(
     @Param('userId', ParseUUIDPipe) userId: string,
     @Body() body: {
       signature: string,
@@ -83,7 +82,22 @@ export class LoanController {
     });
   }
 
-  // Solo personal de intranet puede ver todas las solicitudes
+  @UseGuards(ClientAuthGuard)
+  @Post(":userId/:pre_id")
+  async VerifyPreCreateLoan(
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @Param('pre_id', ParseUUIDPipe) preId: string,
+    @Body('token') token: string,
+    @CurrentUser() user: any
+  ) {
+    // Asegurarse que el preId en el DTO coincide con el usuario autenticado
+    if (user.type === 'client' && user.id !== userId) {
+      throw new HttpException('No autorizado', HttpStatus.FORBIDDEN);
+    }
+
+    return this.loanService.verifyPreLoan(token, preId);
+  }
+
   @UseGuards(IntranetAuthGuard)
   @Get()
   async findAll(

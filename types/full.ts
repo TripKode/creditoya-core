@@ -109,26 +109,27 @@ export type IntranetUser = {
     createdAt: Date;
 }
 
+// Actualización del tipo ILoanApplication para que coincida con el modelo Prisma
 export type ILoanApplication = {
     id: string;
     userId: string;
-    employeeId?: string; // @default("Standby")
-    fisrt_flyer?: string;
-    upid_first_flayer?: string;
-    second_flyer?: string;
-    upid_second_flyer?: string;
-    third_flyer?: string;
-    upid_third_flayer?: string;
-    reasonReject?: string;
-    reasonChangeCantity?: string;
+    employeeId?: string | null;
+    fisrt_flyer?: string | null;
+    upid_first_flyer?: string | null;
+    second_flyer?: string | null;
+    upid_second_flyer?: string | null;
+    third_flyer?: string | null;
+    upid_third_flyer?: string | null;
+    reasonReject?: string | null;
+    reasonChangeCantity?: string | null;
     cantity: string;
-    newCantity?: string;
-    newCantityOpt?: boolean;
+    newCantity?: string | null;
+    newCantityOpt?: boolean | null;
     bankSavingAccount: boolean;
     bankNumberAccount: string;
     entity: string;
-    labor_card?: string;
-    upid_labor_card?: string;
+    labor_card?: string | null;
+    upid_labor_card?: string | null;
     terms_and_conditions: boolean;
     signature: string;
     upSignatureId: string;
@@ -137,8 +138,8 @@ export type ILoanApplication = {
     updated_at: Date;
 
     // Relaciones
-    user: User;
-    GeneratedDocuments: GeneratedDocument[];
+    user?: User;
+    GeneratedDocuments?: GeneratedDocument[];
 };
 
 
