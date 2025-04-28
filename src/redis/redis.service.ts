@@ -1,34 +1,36 @@
 import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+// import { ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
 
 @Injectable()
 export class RedisService {
   private redisClient: Redis;
-  private defaultTTL: number = 3600; // 1 hora en segundos
+  private defaultTTL: number = 3600;
 
-  constructor(private configService: ConfigService) { }
+  constructor(
+    // private configService: ConfigService
+  ) { }
 
-  onModuleInit() {
-    // Conexión a Redis usando ConfigService para obtener las variables de entorno
-    this.redisClient = new Redis({
-      host: this.configService.get('REDIS_HOST', 'localhost'),
-      port: this.configService.get<number>('REDIS_PORT', 6379),
-      password: this.configService.get('REDIS_PASSWORD', ''),
-      db: this.configService.get<number>('REDIS_DB', 0),
-    });
+  // onModuleInit() {
+  //   // Conexión a Redis usando ConfigService para obtener las variables de entorno
+  //   this.redisClient = new Redis({
+  //     host: this.configService.get('REDIS_HOST', 'localhost'),
+  //     port: this.configService.get<number>('REDIS_PORT', 6379),
+  //     password: this.configService.get('REDIS_PASSWORD', ''),
+  //     db: this.configService.get<number>('REDIS_DB', 0),
+  //   });
 
-    this.redisClient.on('error', (error) => {
-      console.error('Error en la conexión Redis:', error);
-    });
+  //   this.redisClient.on('error', (error) => {
+  //     console.error('Error en la conexión Redis:', error);
+  //   });
 
-    console.log('Servicio Redis inicializado correctamente');
-  }
+  //   console.log('Servicio Redis inicializado correctamente');
+  // }
 
-  onModuleDestroy() {
-    this.redisClient.disconnect();
-    console.log('Conexión Redis cerrada correctamente');
-  }
+  // onModuleDestroy() {
+  //   this.redisClient.disconnect();
+  //   console.log('Conexión Redis cerrada correctamente');
+  // }
 
   /**
    * Obtiene un valor de la caché

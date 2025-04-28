@@ -17,6 +17,7 @@ import {
   HttpException,
   HttpStatus,
   UploadedFiles,
+  Logger,
 } from '@nestjs/common';
 import { LoanService } from './loan.service';
 import { UpdateLoanApplicationDto } from './dto/update-loan.dto';
@@ -31,6 +32,7 @@ import { FileFieldsInterceptor, FileInterceptor } from '@nestjs/platform-express
 
 @Controller('loans')
 export class LoanController {
+  private logger = new Logger(LoanController.name);
   constructor(private readonly loanService: LoanService) { }
 
   @UseGuards(ClientAuthGuard)
@@ -54,7 +56,7 @@ export class LoanController {
     },
     @UploadedFiles() files: {
       labor_card?: Express.Multer.File[],
-      fisrt_flyer?: Express.Multer.File[],  // Changed to match DTO
+      fisrt_flyer?: Express.Multer.File[],
       second_flyer?: Express.Multer.File[],
       third_flyer?: Express.Multer.File[]
     },
@@ -159,18 +161,18 @@ export class LoanController {
 
   // Accesible para clientes e intranet, pero con restricciones
   @UseGuards(ClientAuthGuard)
-  @Get(':id')
+  @Get(':user_id/:loan_id/info')
   async findOne(
-    @Param('id', ParseUUIDPipe) id: string,
+    @Param('user_id', ParseUUIDPipe) userId: string,
+    @Param('loan_id') loanId: string,
     @CurrentUser() user: any
   ) {
-    const loan = await this.loanService.get(id);
-
     // Si es un cliente, solo puede ver sus propios préstamos
-    if (user.type === 'client' && loan.userId !== user.id) {
+    if (user.type === 'client' && userId !== user.id) {
       throw new BadRequestException('No autorizado para ver este préstamo');
     }
-
+    const loan = await this.loanService.get(loanId, userId);
+    this.logger.log(loan);
     return loan;
   }
 
@@ -284,7 +286,7 @@ export class LoanController {
     @CurrentUser() user: any
   ) {
     // Verificar que el préstamo pertenece al cliente
-    const loan = await this.loanService.get(id);
+    const loan = await this.loanService.get(id, user.id);
     if (user.type === 'client' && loan.userId !== user.id) {
       throw new BadRequestException('No autorizado para responder a este préstamo');
     }

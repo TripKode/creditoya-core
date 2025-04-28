@@ -1,4 +1,3 @@
-// auth/strategies/jwt-intranet.strategy.ts
 import { Strategy } from 'passport-jwt';
 import { PassportStrategy } from '@nestjs/passport';
 import { Injectable, UnauthorizedException } from '@nestjs/common';

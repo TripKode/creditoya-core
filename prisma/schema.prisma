@@ -87,11 +87,11 @@ model LoanApplication {
     employeeId           String?
     user                 User                 @relation(fields: [userId], references: [id])
     fisrt_flyer          String?
-    upid_first_flyer    String?
+    upid_first_flyer     String?
     second_flyer         String?
     upid_second_flyer    String?
     third_flyer          String?
-    upid_third_flyer    String?
+    upid_third_flyer     String?
     reasonReject         String?
     reasonChangeCantity  String?
     cantity              String
@@ -109,6 +109,10 @@ model LoanApplication {
     created_at           DateTime             @default(now())
     updated_at           DateTime             @updatedAt
     GeneratedDocuments   GeneratedDocuments[]
+}
+
+model EventLoanApplication {
+    id String @id @default(uuid()) @map("_id")
 }
 
 model GeneratedDocuments {
@@ -195,4 +199,9 @@ enum appReport {
 enum statusSession {
     activo
     revocado
+}
+
+enum TypeEventLoan {
+    CHANGE_CANTITY
+    DOCS_REJECT
 }

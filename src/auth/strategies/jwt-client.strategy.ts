@@ -1,10 +1,8 @@
-// auth/strategies/jwt-client.strategy.ts
-import { ExtractJwt, Strategy } from 'passport-jwt';
+import { Strategy } from 'passport-jwt';
 import { PassportStrategy } from '@nestjs/passport';
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Request } from 'express';
-import { RedisService } from 'src/redis/redis.service';
 
 @Injectable()
 export class JwtClientStrategy extends PassportStrategy(Strategy, 'jwt-client') {
