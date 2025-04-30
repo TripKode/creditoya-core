@@ -164,7 +164,7 @@ export class LoanController {
   @Get(':user_id/:loan_id/info')
   async findOne(
     @Param('user_id', ParseUUIDPipe) userId: string,
-    @Param('loan_id') loanId: string,
+    @Param('loan_id', ParseUUIDPipe) loanId: string,
     @CurrentUser() user: any
   ) {
     // Si es un cliente, solo puede ver sus propios préstamos
@@ -172,6 +172,20 @@ export class LoanController {
       throw new BadRequestException('No autorizado para ver este préstamo');
     }
     const loan = await this.loanService.get(loanId, userId);
+    this.logger.log(loan);
+    return loan;
+  }
+
+  @UseGuards(ClientAuthGuard)
+  @Get(":user_id/latest")
+  async latestLoan(
+    @Param('user_id', ParseUUIDPipe) userId: string,
+    @CurrentUser() user: any,
+  ) {
+    if (user.type === 'client' && userId !== user.id) {
+      throw new BadRequestException('No autorizado para ver este préstamo');
+    }
+    const loan = await this.loanService.getLatestLoanByUserId(userId);
     this.logger.log(loan);
     return loan;
   }

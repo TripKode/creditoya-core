@@ -531,6 +531,48 @@ export class LoanService {
   }
 
   /**
+   * Método para obtener la última solicitud de préstamo creada por un usuario específico
+   * @param userId - El ID del usuario cuya última solicitud de préstamo queremos obtener
+   * @returns La última solicitud de préstamo del usuario o null si no existe ninguna
+   */
+  async getLatestLoanByUserId(userId: string): Promise<LoanApplication | null> {
+    try {
+      // Verificar que el usuario existe
+      const userExists = await this.prisma.user.findUnique({
+        where: { id: userId }
+      });
+
+      if (!userExists) {
+        throw new NotFoundException(`Usuario con ID ${userId} no encontrado`);
+      }
+
+      // Buscar la solicitud de préstamo más reciente del usuario
+      const latestLoan = await this.prisma.loanApplication.findFirst({
+        where: { userId },
+        orderBy: {
+          created_at: 'desc'
+        }
+      });
+
+      this.logger.log(`Buscando la última solicitud de préstamo para el usuario ${userId}`);
+
+      // Si no se encuentra ninguna solicitud, devolver null
+      if (!latestLoan) {
+        this.logger.log(`No se encontraron solicitudes de préstamo para el usuario ${userId}`);
+        return null;
+      }
+
+      return latestLoan;
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      this.logger.error(`Error al obtener la última solicitud de préstamo del usuario ${userId}:`, error);
+      throw new BadRequestException(`Error al obtener la última solicitud de préstamo: ${error.message}`);
+    }
+  }
+
+  /**
      * Enhanced method to get all loans for a specific user with pagination and filtering options
      * @param userId - The ID of the user whose loans we want to retrieve
      * @param page - Page number for pagination (default: 1)

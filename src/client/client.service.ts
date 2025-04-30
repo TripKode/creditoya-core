@@ -422,7 +422,7 @@ export class ClientService {
 
     const imageBase64 = await FileToString(imageWithCC);
     const folder = 'images_with_cc';
-    const publicId = `avatar.${userId}`; // Generar un nuevo ID único para la imagen
+    const publicId = `selfie-${userId}`;
     const urlImage = await this.cloudinary.uploadImage(imageBase64, folder, publicId);
 
     return this.prisma.document.update({
