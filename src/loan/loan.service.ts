@@ -549,6 +549,7 @@ export class LoanService {
       // Buscar la solicitud de préstamo más reciente del usuario
       const latestLoan = await this.prisma.loanApplication.findFirst({
         where: { userId },
+        include: { EventLoanApplication: true },
         orderBy: {
           created_at: 'desc'
         }
@@ -889,7 +890,8 @@ export class LoanService {
 
   async rejectDocumentInLoan(
     loanId: string,
-    documentType: 'fisrt_flyer' | 'second_flyer' | 'third_flyer' | 'labor_card'
+    documentType: 'fisrt_flyer' | 'second_flyer' | 'third_flyer' | 'labor_card',
+    reasonReject: string,
   ): Promise<LoanApplication> {
     try {
 
@@ -920,6 +922,16 @@ export class LoanService {
           user: true,
         },
       });
+
+      // add event to loanApplication
+      const newEventInLoan = await this.prisma.eventLoanApplication.create({
+        data: {
+          loanId,
+          type: "DOCS_REJECT"
+        }
+      })
+
+      if (!newEventInLoan) throw new Error("Error al crear evento en el prestamo")
 
       // Notificar al usuario sobre el rechazo del documento
       await this.mailService.sendDeleteDocMail({
@@ -987,6 +999,19 @@ export class LoanService {
         },
       });
 
+      const newEventInLoan = await this.prisma.eventLoanApplication.updateMany({
+        where: {
+          loanId: loanId,
+          isAnswered: false,
+          type: 'DOCS_REJECT',
+        },
+        data: {
+          isAnswered: true
+        }
+      });
+
+      if (!newEventInLoan) throw new Error("Error al crear evento en la solicitud");
+
       return updatedLoan;
     } catch (error) {
       if (error instanceof NotFoundException || error instanceof BadRequestException) {
@@ -1003,7 +1028,8 @@ export class LoanService {
       const loan = await this.prisma.loanApplication.findUnique({
         where: { id: loanId, userId },
         include: {
-          user: true,
+          user: { include: { Document: true } },
+          GeneratedDocuments: true
         },
       });
 
@@ -1184,6 +1210,15 @@ export class LoanService {
         },
       });
 
+      const newEventInLoan = await this.prisma.eventLoanApplication.create({
+        data: {
+          loanId,
+          type: "CHANGE_CANTITY",
+        }
+      });
+
+      if (!newEventInLoan) throw new Error("Error al crear evento en el prestamo")
+
       await this.mailService.sendChangeCantityMail({
         employeeName: `${existingLoan.employeeId} ${existingLoan.employeeId}`,
         loanId: updatedLoan.id,
@@ -1232,6 +1267,13 @@ export class LoanService {
           user: true,
         },
       });
+
+      const newEventInLoan = await this.prisma.eventLoanApplication.updateMany({
+        where: { loanId, isAnswered: false, type: 'CHANGE_CANTITY' },
+        data: { isAnswered: true }
+      })
+
+      if (!newEventInLoan) throw new Error("Error al crear evento en la solicitud");
 
       return updatedLoan;
     } catch (error) {

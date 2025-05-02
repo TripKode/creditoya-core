@@ -8,7 +8,7 @@ import { Request } from 'express';
 export class JwtIntranetStrategy extends PassportStrategy(Strategy, 'jwt-intranet') {
   constructor(private prisma: PrismaService) {
     super({
-      jwtFromRequest: extractJwtFromCookie('@creditoya:token-intranet'),
+      jwtFromRequest: extractJwtFromCookie('intranet-token'),
       ignoreExpiration: false,
       secretOrKey: process.env.JWT_SECRET!,
       passReqToCallback: true,

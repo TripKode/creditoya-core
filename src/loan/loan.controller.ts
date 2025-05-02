@@ -18,6 +18,8 @@ import {
   HttpStatus,
   UploadedFiles,
   Logger,
+  ForbiddenException,
+  NotFoundException,
 } from '@nestjs/common';
 import { LoanService } from './loan.service';
 import { UpdateLoanApplicationDto } from './dto/update-loan.dto';
@@ -29,6 +31,7 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { FileFieldsInterceptor, FileInterceptor } from '@nestjs/platform-express';
+import { CombinedAuthGuard } from 'src/auth/guards/combined-auth.guard';
 
 @Controller('loans')
 export class LoanController {
@@ -132,8 +135,10 @@ export class LoanController {
   async getApprovedLoans(
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
     @Query('pageSize', new DefaultValuePipe(5), ParseIntPipe) pageSize: number,
+    @CurrentUser() user: any,
     @Query('search') searchQuery?: string,
   ) {
+    console.log(user)
     return this.loanService.getApprovedLoans(page, pageSize, searchQuery);
   }
 
@@ -159,21 +164,36 @@ export class LoanController {
     return this.loanService.getLoansWithDefinedNewCantity(page, pageSize, searchQuery);
   }
 
-  // Accesible para clientes e intranet, pero con restricciones
-  @UseGuards(ClientAuthGuard)
+  @UseGuards(CombinedAuthGuard)
   @Get(':user_id/:loan_id/info')
   async findOne(
     @Param('user_id', ParseUUIDPipe) userId: string,
     @Param('loan_id', ParseUUIDPipe) loanId: string,
     @CurrentUser() user: any
   ) {
-    // Si es un cliente, solo puede ver sus propios préstamos
-    if (user.type === 'client' && userId !== user.id) {
-      throw new BadRequestException('No autorizado para ver este préstamo');
+    // Validar permisos según el tipo de usuario
+    if (user.type === 'client') {
+      // Los clientes solo pueden ver sus propios préstamos
+      if (userId !== user.id) {
+        throw new ForbiddenException('No tiene autorización para ver préstamos de otros usuarios');
+      }
+    } else if (user.type === 'intranet') {
+      // Los usuarios de intranet pueden ver cualquier préstamo
+      // No se necesita validación adicional
+    } else {
+      // Si no es cliente ni intranet, no debería tener acceso
+      throw new ForbiddenException('Tipo de usuario no autorizado');
     }
-    const loan = await this.loanService.get(loanId, userId);
-    this.logger.log(loan);
-    return loan;
+
+    try {
+      console.log(loanId, userId);
+      const loan = await this.loanService.get(loanId, userId);
+      this.logger.log(`Préstamo consultado: ${loanId} para usuario: ${userId} por ${user.type}`);
+      return loan;
+    } catch (error) {
+      this.logger.error(`Error al obtener préstamo: ${error.message}`, error.stack);
+      throw new NotFoundException('El préstamo solicitado no existe o no está disponible');
+    }
   }
 
   @UseGuards(ClientAuthGuard)

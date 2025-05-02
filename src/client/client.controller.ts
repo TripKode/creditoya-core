@@ -23,6 +23,7 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { RejectReasonDto, UpdateDocumentDto, UpdatePasswordDto, CreateClientDto } from './dto/create-client.dto';
+import { CombinedAuthGuard } from 'src/auth/guards/combined-auth.guard';
 
 @Controller('clients')
 export class ClientController {
@@ -39,7 +40,7 @@ export class ClientController {
   }
 
   // Acceso solo para clientes
-  @UseGuards(ClientAuthGuard)
+  @UseGuards(CombinedAuthGuard)
   @Get(':id')
   async get(
     @Param('id') id: string,
