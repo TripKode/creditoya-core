@@ -260,7 +260,7 @@ export class LoanController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() changeStatusDto: ChangeLoanStatusDto,
   ) {
-    return this.loanService.changeStatus(id, changeStatusDto);
+    return this.loanService.changeCantity(id, changeStatusDto);
   }
 
   // Solo personal de intranet puede rechazar préstamos
@@ -289,25 +289,6 @@ export class LoanController {
     }
 
     return this.loanService.fillEmployeeId(id, employeeId);
-  }
-
-  // Solo personal de intranet puede cambiar la cantidad de un préstamo
-  @UseGuards(IntranetAuthGuard, RolesGuard)
-  @Roles('admin', 'employee')
-  @Patch(':id/cantity')
-  async changeCantity(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body('newCantity') newCantity: string,
-    @Body('reasonChangeCantity') reasonChangeCantity: string,
-    @Body('employeeId') employeeId: string,
-    @CurrentUser() user: any
-  ) {
-    // Si es un empleado, solo puede usar su propio ID
-    if (user.rol === 'employee' && employeeId !== user.id) {
-      throw new BadRequestException('Debe usar su propio ID de empleado');
-    }
-
-    return this.loanService.changeCantity(id, newCantity, reasonChangeCantity, employeeId);
   }
 
   // Los clientes pueden responder a ofertas de nueva cantidad

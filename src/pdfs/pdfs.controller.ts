@@ -9,6 +9,7 @@ import { ClientAuthGuard } from 'src/auth/guards/client-auth.guard';
 import { RolesGuard } from 'src/auth/guards/roles.guard';
 import { Roles } from 'src/auth/decorators/roles.decorator';
 import { CurrentUser } from 'src/auth/decorators/current-user.decorator';
+import { CombinedAuthGuard } from 'src/auth/guards/combined-auth.guard';
 
 @Controller('pdfs')
 export class PdfsController {
@@ -186,7 +187,7 @@ export class PdfsController {
   }
 
   // Accesible tanto para clientes como para intranet con validaciones
-  @UseGuards(ClientAuthGuard)
+  @UseGuards(CombinedAuthGuard)
   @Get('document/:documentId')
   async downloadDocument(
     @Param('documentId') documentId: string,
@@ -203,12 +204,12 @@ export class PdfsController {
       throw new NotFoundException('Documento no encontrado');
     }
 
-    // Si es un cliente, verificar que el documento pertenece a un préstamo de este cliente
-    if (user.type === 'client') {
-      if (document.loan.userId !== user.id) {
-        throw new ForbiddenException('No tiene permiso para descargar este documento');
-      }
-    }
+    // // Si es un cliente, verificar que el documento pertenece a un préstamo de este cliente
+    // if (user.type === 'client' || user.type === 'intranet') {
+    //   if (document.loan.userId !== user.id) {
+    //     throw new ForbiddenException('No tiene permiso para descargar este documento');
+    //   }
+    // }
 
     const { buffer, fileName, contentType } = await this.pdfsService.downloadDocument(documentId);
 
@@ -228,64 +229,64 @@ export class PdfsController {
   }
 
   // Puede ser accedido por intranet y clientes con restricciones
-  @UseGuards(ClientAuthGuard)
+  @UseGuards(CombinedAuthGuard)
   @Get('all-documents')
   async getAllDocuments(
     @CurrentUser() user: any,
     @Query('userId') userId?: string,
     @Query('loanId') loanId?: string,
   ) {
-    // Si es un cliente, solo puede ver sus propios documentos
-    if (user.type === 'client') {
-      if (userId && userId !== user.id) {
-        throw new ForbiddenException('Solo puede ver sus propios documentos');
-      }
+    // // Si es un cliente, solo puede ver sus propios documentos
+    // if (user.type === 'client') {
+    //   if (userId && userId !== user.id) {
+    //     throw new ForbiddenException('Solo puede ver sus propios documentos');
+    //   }
 
-      // Forzar que solo muestre documentos del usuario autenticado
-      userId = user.id;
-    }
+    //   // Forzar que solo muestre documentos del usuario autenticado
+    //   userId = user.id;
+    // }
 
     return this.pdfsService.listDocumentsWithLoans({ userId, loanId });
   }
 
   // Puede ser accedido por intranet y clientes con restricciones
-  @UseGuards(ClientAuthGuard)
+  @UseGuards(CombinedAuthGuard)
   @Get('never-downloaded')
   async getNeverDownloadedDocuments(
     @CurrentUser() user: any,
     @Query('userId') userId?: string,
     @Query('loanId') loanId?: string
   ) {
-    // Si es un cliente, solo puede ver sus propios documentos
-    if (user.type === 'client') {
-      if (userId && userId !== user.id) {
-        throw new ForbiddenException('Solo puede ver sus propios documentos');
-      }
+    // // Si es un cliente, solo puede ver sus propios documentos
+    // if (user.type === 'client') {
+    //   if (userId && userId !== user.id) {
+    //     throw new ForbiddenException('Solo puede ver sus propios documentos');
+    //   }
 
-      // Forzar que solo muestre documentos del usuario autenticado
-      userId = user.id;
-    }
+    //   // Forzar que solo muestre documentos del usuario autenticado
+    //   userId = user.id;
+    // }
 
     return this.pdfsService.listNeverDownloadedDocuments({ userId, loanId });
   }
 
   // Puede ser accedido por intranet y clientes con restricciones
-  @UseGuards(ClientAuthGuard)
+  @UseGuards(CombinedAuthGuard)
   @Get('downloaded')
   async getDownloadedDocuments(
     @CurrentUser() user: any,
     @Query('userId') userId?: string,
     @Query('loanId') loanId?: string
   ) {
-    // Si es un cliente, solo puede ver sus propios documentos
-    if (user.type === 'client') {
-      if (userId && userId !== user.id) {
-        throw new ForbiddenException('Solo puede ver sus propios documentos');
-      }
+    // // Si es un cliente, solo puede ver sus propios documentos
+    // if (user.type === 'client') {
+    //   if (userId && userId !== user.id) {
+    //     throw new ForbiddenException('Solo puede ver sus propios documentos');
+    //   }
 
-      // Forzar que solo muestre documentos del usuario autenticado
-      userId = user.id;
-    }
+    //   // Forzar que solo muestre documentos del usuario autenticado
+    //   userId = user.id;
+    // }
 
     return this.pdfsService.listDownloadedDocuments({ userId, loanId });
   }

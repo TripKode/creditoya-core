@@ -15,12 +15,18 @@ import {
   skeletonSubJson02,
   skeletonJson03,
 } from 'templates/AboutPdf';
+import { CombinedAuthGuard } from 'src/auth/guards/combined-auth.guard';
+import { IntranetAuthGuard } from 'src/auth/guards/intranet-auth.guard';
+import { ClientAuthGuard } from 'src/auth/guards/client-auth.guard';
 
 @Module({
   imports: [GoogleCloudModule, PrismaModule],
   controllers: [PdfsController],
   providers: [
     PdfsService,
+    ClientAuthGuard, // Add ClientAuthGuard as a provider
+    IntranetAuthGuard, // Add IntranetAuthGuard as a provider if not already provided elsewhere
+    CombinedAuthGuard, // Add CombinedAuthGuard as a provider
     {
       provide: SKELETON_JSON_00,
       useValue: skeletonJson00,
@@ -44,4 +50,4 @@ import {
   ],
   exports: [PdfsService],
 })
-export class PdfsModule {}
+export class PdfsModule { }

@@ -1029,7 +1029,8 @@ export class LoanService {
         where: { id: loanId, userId },
         include: {
           user: { include: { Document: true } },
-          GeneratedDocuments: true
+          GeneratedDocuments: true,
+          EventLoanApplication: true
         },
       });
 
@@ -1182,9 +1183,7 @@ export class LoanService {
   // Método para cambiar cantidad y adjuntar razón del cambio
   async changeCantity(
     loanId: string,
-    newCantity: string,
-    reasonChangeCantity: string,
-    employeeId: string
+    data: ChangeLoanStatusDto
   ): Promise<LoanApplication> {
     try {
       // Verificar que la solicitud existe
@@ -1200,10 +1199,9 @@ export class LoanService {
       const updatedLoan = await this.prisma.loanApplication.update({
         where: { id: loanId },
         data: {
-          newCantity,
-          reasonChangeCantity,
-          employeeId,
-          newCantityOpt: true,
+          newCantity: data.newCantity,
+          reasonChangeCantity: data.reasonChangeCantity,
+          employeeId: data.employeeId,
         },
         include: {
           user: true,
@@ -1222,8 +1220,8 @@ export class LoanService {
       await this.mailService.sendChangeCantityMail({
         employeeName: `${existingLoan.employeeId} ${existingLoan.employeeId}`,
         loanId: updatedLoan.id,
-        reason_aproved: reasonChangeCantity,
-        cantity_aproved: newCantity,
+        reason_aproved: data.reasonChangeCantity!,
+        cantity_aproved: data.newCantity!,
         mail: updatedLoan.user.email,
       });
 
