@@ -8,6 +8,7 @@ import { ActiveAccountMail } from '../../templatesEmails/generates/GenerateActiv
 import { ChangeCantityMail } from '../../templatesEmails/generates/GenerateChangeCantityMail';
 import { generateMailChangeStatus } from '../../templatesEmails/generates/GenerateChangeStatusMail';
 import { generateMailRejectDocument } from '../../templatesEmails/generates/GenerateRejectDocument';
+import { GenerateMailSignup } from 'templatesEmails/generates/GenerateWelcome';
 
 @Injectable()
 export class MailService {
@@ -137,6 +138,45 @@ export class MailService {
     } catch (error) {
       console.error('Error sending image mail:', error);
       throw new Error(`Failed to send email with image: ${error.message}`);
+    }
+  }
+
+  // specify Helpers
+
+  async newClientMail(data: {
+    mail: string,
+    completeName: string
+  }) {
+    try {
+      if (!data.mail) {
+        throw new Error('Missing required email');
+      }
+
+      const content = GenerateMailSignup(data.completeName);
+      const html = await MJMLtoHTML(content);
+
+      const mailData = await this.transporter.sendMail({
+        from: await this.getEmailSender(),
+        to: data.mail,
+        subject: '¡Bienvenido a Crédito Ya! Estamos felices de tenerte aquí',
+        text: `Hola ${data.completeName},
+
+        ¡Gracias por registrarte en Crédito Ya! Estamos muy contentos de que te unas a nuestra comunidad.
+
+        Desde ahora podrás disfrutar de una experiencia ágil, segura y confiable para gestionar tus créditos y oportunidades financieras.
+
+        Si tienes alguna pregunta o necesitas ayuda, no dudes en escribirnos.
+
+        ¡Bienvenido nuevamente!
+
+        El equipo de Crédito Ya`,
+        html,
+      })
+      
+      return mailData;
+    } catch (error) {
+      console.error('Error sending welcome email:', error);
+      throw new Error(`Failed to send welcome email: ${error.message}`);
     }
   }
 

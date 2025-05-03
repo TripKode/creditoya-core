@@ -64,18 +64,19 @@ export type User = {
     currentCompany: UserCompany;
     avatar: string;
     phone: string;
-    residencePhoneNumber: string;
-    whatsappPhone: string;
-    birthDate?: Date;
+    residence_phone_number: string;
+    phone_whatsapp: string;
+    birth_day?: Date;
+    place_of_birth?: string;
     gender: string;
-    residenceAddress: string;
+    residence_address: string;
     city: string;
     isBanned?: boolean;
     createdAt: Date;
     updatedAt: Date;
 
     // Relations
-    documents: Document[];
+    Document: Document[];
     loanApplications: ILoanApplication[];
 }
 
@@ -83,9 +84,9 @@ export type Document = {
     id: string;
     userId: string;
     documentSides: string;
-    uploadId: string;
+    upId: string;
     imageWithCC: string;
-    documentType: DocumentType;
+    typeDocument: DocumentType;
     number: string;
     createdAt: Date;
     updatedAt: Date;
@@ -108,37 +109,39 @@ export type IntranetUser = {
     createdAt: Date;
 }
 
+// Actualización del tipo ILoanApplication para que coincida con el modelo Prisma
 export type ILoanApplication = {
     id: string;
     userId: string;
-    employeeId?: string;
-    firstFlyer?: string;
-    firstFlyerUploadId?: string;
-    secondFlyer?: string;
-    secondFlyerUploadId?: string;
-    thirdFlyer?: string;
-    thirdFlyerUploadId?: string;
-    rejectionReason?: string;
-    amountChangeReason?: string;
-    requestedAmount: string;
-    newAmount?: string;
-    newAmountOption?: boolean;
-    hasBankSavingsAccount: boolean;
-    bankAccountNumber: string;
-    bankEntity: string;
-    laborCard?: string;
-    laborCardUploadId?: string;
-    hasAcceptedTerms: boolean;
+    employeeId?: string | null;
+    fisrt_flyer?: string | null;
+    upid_first_flyer?: string | null;
+    second_flyer?: string | null;
+    upid_second_flyer?: string | null;
+    third_flyer?: string | null;
+    upid_third_flyer?: string | null;
+    reasonReject?: string | null;
+    reasonChangeCantity?: string | null;
+    cantity: string;
+    newCantity?: string | null;
+    newCantityOpt?: boolean | null;
+    bankSavingAccount: boolean;
+    bankNumberAccount: string;
+    entity: string;
+    labor_card?: string | null;
+    upid_labor_card?: string | null;
+    terms_and_conditions: boolean;
     signature: string;
-    signatureUploadId: string;
+    upSignatureId: string;
     status: LoanStatus;
-    createdAt: Date;
-    updatedAt: Date;
+    created_at: Date;
+    updated_at: Date;
 
-    // Relations
-    user: User;
-    generatedDocuments: GeneratedDocument[];
-}
+    // Relaciones
+    user?: User;
+    GeneratedDocuments?: GeneratedDocument[];
+};
+
 
 export type GeneratedDocument = {
     id: string;

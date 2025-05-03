@@ -4,6 +4,7 @@ export class CreateClientDto {
   names: string;
   firstLastName: string;
   secondLastName: string;
+  currentCompanie: string
   phone?: string;
 };
 
@@ -18,7 +19,6 @@ export class UpdatePasswordDto {
 
 export class UpdateDocumentDto {
   documentSides: string;
-  number: string;
 }
 
 export class RejectReasonDto {
