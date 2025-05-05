@@ -172,7 +172,7 @@ export class MailService {
         El equipo de Crédito Ya`,
         html,
       })
-      
+
       return mailData;
     } catch (error) {
       console.error('Error sending welcome email:', error);
@@ -276,4 +276,15 @@ export class MailService {
       throw new Error(`Failed to send document rejection email: ${error.message}`);
     }
   }
+
+  async sendApprovalEmail(data: {
+    loanId: string;
+    mail: string
+  }): Promise<nodemailer.SentMessageInfo> { }
+
+  async sendRejectionEmail(data: {
+    loanId: string;
+    reason: string;
+    mail: string
+  }): Promise<nodemailer.SentMessageInfo> { }
 }

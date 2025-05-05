@@ -1076,47 +1076,79 @@ export class LoanService {
 
       const { status, reasonReject, employeeId, reasonChangeCantity, newCantity } = statusDto;
 
-      console.log(status, reasonReject, employeeId, reasonChangeCantity, newCantity);
+      // Preparar el objeto para actualizar la solicitud
+      const updateData: any = {
+        status,
+        employeeId
+      };
 
+      // Agregar campos condicionales según lo que se haya proporcionado
+      if (reasonReject) updateData.reasonReject = reasonReject;
+      if (reasonChangeCantity) updateData.reasonChangeCantity = reasonChangeCantity;
+      if (newCantity) updateData.newCantity = newCantity;
+
+      // Actualizar la solicitud de préstamo
       const updatedLoan = await this.prisma.loanApplication.update({
         where: { id: loanApplicationId },
-        data: {
-          status,
-          reasonReject,
-          employeeId,
-          reasonChangeCantity,
-          newCantity,
-          newCantityOpt: newCantity ? true : undefined,
-        },
+        data: updateData,
         include: {
           user: true,
         },
       });
 
-      // Procesar la notificación por correo electrónico si es necesario
-      if (updatedLoan.newCantity && updatedLoan.reasonChangeCantity && employeeId) {
-        const intraInfo = await this.prisma.usersIntranet.findFirst({
-          where: { id: employeeId },
+      // Crear evento si hay cambio de cantidad
+      if (newCantity && reasonChangeCantity) {
+        await this.prisma.eventLoanApplication.create({
+          data: {
+            loanId: loanApplicationId,
+            type: "CHANGE_CANTITY",
+          }
         });
+      }
 
-        if (intraInfo) {
+      // Enviar correos según el estado actualizado
+      if (status === 'Aprobado') {
+        // Obtener información del empleado que aprueba
+        const employeeInfo = employeeId ?
+          await this.prisma.usersIntranet.findFirst({
+            where: { id: employeeId },
+          }) : null;
+
+        // Si hay cambio de cantidad, enviar correo específico de cambio
+        if (newCantity && reasonChangeCantity && employeeInfo) {
           await this.mailService.sendChangeCantityMail({
-            employeeName: `${intraInfo.name} ${intraInfo.lastNames}`,
+            employeeName: `${employeeInfo.name} ${employeeInfo.lastNames}`,
             loanId: updatedLoan.id,
-            reason_aproved: updatedLoan.reasonChangeCantity,
-            cantity_aproved: updatedLoan.newCantity,
+            reason_aproved: reasonChangeCantity,
+            cantity_aproved: newCantity,
             mail: updatedLoan.user.email,
           });
+        } else {
+          // Correo de aprobación estándar
+          await this.mailService.sendApprovalEmail({
+            loanId: updatedLoan.id,
+            mail: updatedLoan.user.email,
+            // Otros campos necesarios para el correo de aprobación
+          });
         }
+      } else if (status === 'Aplazado' && reasonReject) {
+        // Correo de rechazo o aplazamiento
+        await this.mailService.sendRejectionEmail({
+          loanId: updatedLoan.id,
+          reason: reasonReject,
+          mail: updatedLoan.user.email,
+          // Otros campos necesarios para el correo de rechazo
+        });
       }
 
       return updatedLoan;
+
     } catch (error) {
       if (error instanceof NotFoundException) {
         throw error;
       }
       console.error('Error detallado:', error);
-      throw new BadRequestException('Error al cambiar el estado de la solicitud de préstamo');
+      throw new BadRequestException(`Error al cambiar el estado de la solicitud de préstamo: ${error.message}`);
     }
   }
 
@@ -1177,60 +1209,6 @@ export class LoanService {
         throw error;
       }
       throw new BadRequestException('Error al asignar el empleado a la solicitud');
-    }
-  }
-
-  // Método para cambiar cantidad y adjuntar razón del cambio
-  async changeCantity(
-    loanId: string,
-    data: ChangeLoanStatusDto
-  ): Promise<LoanApplication> {
-    try {
-      // Verificar que la solicitud existe
-      const existingLoan = await this.prisma.loanApplication.findUnique({
-        where: { id: loanId },
-        include: { user: true }
-      });
-
-      if (!existingLoan) {
-        throw new NotFoundException(`Solicitud de préstamo con ID ${loanId} no encontrada`);
-      }
-
-      const updatedLoan = await this.prisma.loanApplication.update({
-        where: { id: loanId },
-        data: {
-          newCantity: data.newCantity,
-          reasonChangeCantity: data.reasonChangeCantity,
-          employeeId: data.employeeId,
-        },
-        include: {
-          user: true,
-        },
-      });
-
-      const newEventInLoan = await this.prisma.eventLoanApplication.create({
-        data: {
-          loanId,
-          type: "CHANGE_CANTITY",
-        }
-      });
-
-      if (!newEventInLoan) throw new Error("Error al crear evento en el prestamo")
-
-      await this.mailService.sendChangeCantityMail({
-        employeeName: `${existingLoan.employeeId} ${existingLoan.employeeId}`,
-        loanId: updatedLoan.id,
-        reason_aproved: data.reasonChangeCantity!,
-        cantity_aproved: data.newCantity!,
-        mail: updatedLoan.user.email,
-      });
-
-      return updatedLoan;
-    } catch (error) {
-      if (error instanceof NotFoundException) {
-        throw error;
-      }
-      throw new BadRequestException('Error al cambiar la cantidad del préstamo');
     }
   }
 
