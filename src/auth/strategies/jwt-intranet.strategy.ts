@@ -8,9 +8,26 @@ import { Request } from 'express';
 export class JwtIntranetStrategy extends PassportStrategy(Strategy, 'jwt-intranet') {
   constructor(private prisma: PrismaService) {
     super({
-      jwtFromRequest: extractJwtFromCookie('intranet-token'),
+      // Match the approach used in JwtClientStrategy
+      jwtFromRequest: (req) => {
+        // First try from cookies
+        let token = null;
+        if (req && req.cookies) {
+          token = req.cookies['intranet_token'];
+        }
+
+        // If no token in cookies, try from Authorization header
+        if (!token && req.headers.authorization) {
+          const authHeader = req.headers.authorization;
+          if (authHeader.startsWith('Bearer ')) {
+            token = authHeader.substring(7);
+          }
+        }
+
+        return token;
+      },
       ignoreExpiration: false,
-      secretOrKey: process.env.JWT_SECRET!,
+      secretOrKey: process.env.JWT_SECRET as string,
       passReqToCallback: true,
     });
   }
@@ -39,7 +56,7 @@ export class JwtIntranetStrategy extends PassportStrategy(Strategy, 'jwt-intrane
 
 // Función para extraer el JWT de la cookie
 function extractJwtFromCookie(cookieName: string) {
-  return function(req: Request) {
+  return function (req: Request) {
     let token = null;
     if (req && req.cookies) {
       token = req.cookies[cookieName];
