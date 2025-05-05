@@ -1,4 +1,4 @@
-import { Controller, Post, Body, UseGuards, Get, Req, Res } from '@nestjs/common';
+import { Controller, Post, Body, UseGuards, Get, Res } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { LocalClientAuthGuard } from './guards/local-client-auth.guard';
 import { CurrentUser } from './decorators/current-user.decorator';
@@ -9,29 +9,41 @@ import { Response } from 'express';
 
 @Controller('auth')
 export class AuthController {
-  constructor(private authService: AuthService) {}
+  constructor(private authService: AuthService) { }
 
-  // Login de cliente
   @UseGuards(LocalClientAuthGuard)
   @Post('login/client')
   async loginClient(
     @CurrentUser() user,
     @Res({ passthrough: true }) response: Response,
   ) {
-    return this.authService.loginClient(user, response);
+    try {
+      return await this.authService.loginClient(user, response);
+    } catch (error) {
+      console.error('Error in client login:', error);
+      throw error;
+    }
+  }
+
+  // AuthController - loginIntranet endpoint
+  @UseGuards(LocalIntranetAuthGuard)
+  @Post('login/intranet')
+  async loginIntranet(
+    @CurrentUser() user,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    try {
+      return await this.authService.loginIntranet(user, response);
+    } catch (error) {
+      console.error('Error in intranet login:', error);
+      throw error;
+    }
   }
 
   // @UseGuards(LocalClientAuthGuard)
   @Post('register/client')
   async registerClient(@Body() userData) {
     return this.authService.registerClient(userData);
-  }
-
-  // Login de intranet
-  @UseGuards(LocalIntranetAuthGuard)
-  @Post('login/intranet')
-  async loginIntranet(@CurrentUser() user) {
-    return this.authService.loginIntranet(user);
   }
 
   // Verificar autenticación del cliente
@@ -51,17 +63,48 @@ export class AuthController {
     return this.authService.getIntranetProfile(user.id);
   }
 
-  // Logout para clientes
+  // AuthController - logoutClient endpoint
   @UseGuards(ClientAuthGuard)
   @Post('logout/client')
-  async logoutClient(@CurrentUser() user) {
-    return this.authService.revokeToken(user.id, 'client');
+  async logoutClient(
+    @CurrentUser() user,
+    @Res({ passthrough: true }) response: Response
+  ) {
+    try {
+      // Also revoke the token if you implement a token blacklist
+      await this.authService.revokeToken(
+        user.id,
+        'client',
+        'creditoya_token',
+        response
+      );
+
+      return { message: 'Sesión cerrada correctamente' };
+    } catch (error) {
+      console.error('Error in client logout:', error);
+      throw error;
+    }
   }
 
-  // Logout para intranet
+  // AuthController - logoutIntranet endpoint
   @UseGuards(IntranetAuthGuard)
   @Post('logout/intranet')
-  async logoutIntranet(@CurrentUser() user) {
-    return this.authService.revokeToken(user.id, 'intranet');
+  async logoutIntranet(
+    @CurrentUser() user,
+    @Res({ passthrough: true }) response: Response
+  ) {
+    try {
+      // Also revoke the token if you implement a token blacklist
+      await this.authService.revokeToken(
+        user.id,
+        'intranet',
+        'intranet_token',
+        response
+      );
+      return { message: 'Sesión cerrada correctamente' };
+    } catch (error) {
+      console.error('Error in intranet logout:', error);
+      throw error;
+    }
   }
 }
