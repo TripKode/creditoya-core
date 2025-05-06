@@ -73,7 +73,10 @@ export class ClientService {
       include: {
         Document: true,
         LoanApplication: {
-          include: { GeneratedDocuments: true }
+          include: {
+            GeneratedDocuments: true,
+            EventLoanApplication: true
+          }
         }
       },
     });

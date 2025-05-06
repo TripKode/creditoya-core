@@ -260,7 +260,7 @@ export class LoanController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() changeStatusDto: ChangeLoanStatusDto,
   ) {
-    return this.loanService.changeCantity(id, changeStatusDto);
+    return this.loanService.changeStatus(id, changeStatusDto);
   }
 
   // Solo personal de intranet puede rechazar préstamos

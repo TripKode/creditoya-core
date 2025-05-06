@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
 import { User, UsersIntranet } from '@prisma/client';
 import { ClientService } from 'src/client/client.service';
+import { Response } from 'express';
 
 @Injectable()
 export class AuthService {
@@ -59,7 +60,6 @@ export class AuthService {
     return user;
   }
 
-  // Generar token para clientes
   async loginClient(user: User, response?: any) {
     const payload = {
       sub: user.id,
@@ -69,21 +69,19 @@ export class AuthService {
 
     const token = this.jwtService.sign(payload);
 
+    // Set cookie with improved error handling
     if (response && typeof response.cookie === 'function') {
       try {
         response.cookie('creditoya_token', token, {
           httpOnly: true,
           secure: process.env.NODE_ENV === 'production',
-          maxAge: 86400000, // 24 hours in milliseconds
+          maxAge: 86400000, // 24 hours
           path: '/',
-          sameSite: 'none'
+          sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
         });
       } catch (error) {
-        console.error('Error setting cookie:', error);
-        // Continúa la ejecución incluso si falla la configuración de la cookie
+        console.error('Error setting client cookie:', error);
       }
-    } else {
-      console.warn('Response object is invalid or missing cookie method');
     }
 
     return {
@@ -100,7 +98,7 @@ export class AuthService {
   }
 
   // Generar token para usuarios de intranet
-  async loginIntranet(user: UsersIntranet) {
+  async loginIntranet(user: UsersIntranet, response?: any) {
     const payload = {
       sub: user.id,
       email: user.email,
@@ -110,7 +108,20 @@ export class AuthService {
 
     const token = this.jwtService.sign(payload);
 
-    console.log('Token generado:', token, payload);
+    // Set cookie consistently with client login
+    if (response && typeof response.cookie === 'function') {
+      try {
+        response.cookie('intranet_token', token, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === 'production',
+          maxAge: 86400000, // 24 hours
+          path: '/',
+          sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
+        });
+      } catch (error) {
+        console.error('Error setting intranet cookie:', error);
+      }
+    }
 
     return {
       user: {
@@ -126,10 +137,23 @@ export class AuthService {
   }
 
   // Revocar token (logout)
-  async revokeToken(userId: string, userType: 'client' | 'intranet'): Promise<void> {
+  async revokeToken(
+    userId: string,
+    userType: 'client' | 'intranet',
+    cookieApp: 'creditoya_token' | 'intranet_token',
+    response: Response
+  ): Promise<void> {
     // Token revocation would need to be implemented differently without Redis
     // Consider using a database table to track revoked tokens or implementing
     // a shorter token expiration with refresh tokens
+    // Clear cookie
+    response.clearCookie(cookieApp, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      path: '/',
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
+    });
+
     console.log(`Token revoked for ${userType} with ID ${userId}`);
   }
 
