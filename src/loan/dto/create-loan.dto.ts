@@ -11,7 +11,7 @@ export class CreateLoanApplicationDto {
   fisrt_flyer: string | null;
   upid_first_flayer: string | null;
   second_flyer: string | null;
-  uupid_second_flyer: string | null;
+  upid_second_flyer: string | null;
   third_flyer: string | null;
   upid_third_flayer: string | null;
   isValorAgregado?: boolean;

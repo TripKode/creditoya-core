@@ -14,11 +14,6 @@ import { ILoanApplication, LoanStatus } from 'types/full';
 @Injectable()
 export class LoanService {
   private logger = new Logger(LoanService.name);
-  // private readonly CACHE_TTL = 3600; // 1 hour in seconds
-  // private readonly LOAN_CACHE_PREFIX = 'loan:';
-  // private readonly PRE_CACHE_LOAN_KEY = 'pre-loan:';
-  // private readonly LOANS_LIST_CACHE_KEY = 'loans:list';
-  // private readonly USER_LOANS_CACHE_PREFIX = 'user:loans:';
 
   constructor(
     private prisma: PrismaService,
@@ -31,10 +26,50 @@ export class LoanService {
   // Método para crear una solicitud de préstamo
   private async create(data: CreateLoanApplicationDto): Promise<ILoanApplication> {
     try {
-      // Validación de documentos requeridos
-      if (!data.isValorAgregado && !data.fisrt_flyer && !data.second_flyer && !data.third_flyer) {
-        if (!data.labor_card) throw new BadRequestException("Porfavor sube los volantes de pago y la carta laboral");
-        throw new BadRequestException("Porfavor sube los volantes de pago");
+      // Primero, obtener el usuario para verificar si es de valor_agregado
+      const user = await this.prisma.user.findUnique({
+        where: {
+          id: data.userId,
+        },
+        select: {
+          id: true,
+          email: true,
+          names: true,
+          firstLastName: true,
+          secondLastName: true,
+          currentCompanie: true,
+          Document: true
+        }
+      });
+
+      if (!user) {
+        throw new BadRequestException("Usuario no encontrado");
+      }
+
+      // Verificar directamente si el usuario es de valor_agregado
+      const isValorAgregadoUser = user.currentCompanie === 'valor_agregado';
+
+      this.logger.debug(`Usuario ${user.id} pertenece a compañía: ${user.currentCompanie}`);
+      this.logger.debug(`¿Es usuario valor_agregado?: ${isValorAgregadoUser}`);
+
+      // Validación solo para usuarios que NO son de valor agregado
+      if (!isValorAgregadoUser) {
+        this.logger.debug('Ejecutando validaciones para usuario regular');
+
+        // Verificar los volantes de pago
+        const hasAllFlyers = data.fisrt_flyer && data.second_flyer && data.third_flyer;
+
+        // Si no tiene carta laboral y tampoco todos los volantes
+        if (!data.labor_card && !hasAllFlyers) {
+          throw new BadRequestException("Porfavor sube la carta laboral y los volantes de pago");
+        }
+
+        // Si tiene carta laboral pero faltan volantes
+        if (!hasAllFlyers) {
+          throw new BadRequestException("Porfavor sube los volantes de pago");
+        }
+      } else {
+        this.logger.debug('Usuario es valor_agregado - omitiendo validaciones de documentos');
       }
 
       // Crear el préstamo en la base de datos
@@ -53,36 +88,30 @@ export class LoanService {
           upSignatureId: data.upSignatureId,
           status: LoanStatus.PENDING, // Agregar estado por defecto
 
-          // Documentos y sus IDs - corregir typos y usar null en lugar de undefined
-          fisrt_flyer: data.fisrt_flyer ?? null,
-          upid_first_flyer: data.upid_first_flayer ?? null,
-          second_flyer: data.second_flyer ?? null,
-          upid_second_flyer: data.uupid_second_flyer ?? null, // Corregido el typo
-          third_flyer: data.third_flyer ?? null,
-          upid_third_flyer: data.upid_third_flayer ?? null,
-          labor_card: data.labor_card ?? null,
-          upid_labor_card: data.upid_labor_card ?? null,
+          // Documentos y sus IDs - usando null para valores opcionales
+          fisrt_flyer: data.fisrt_flyer || null,
+          upid_first_flyer: data.upid_first_flayer || null,
+          second_flyer: data.second_flyer || null,
+          upid_second_flyer: data.upid_second_flyer || null, // Corregido el typo
+          third_flyer: data.third_flyer || null,
+          upid_third_flyer: data.upid_third_flayer || null,
+          labor_card: data.labor_card || null,
+          upid_labor_card: data.upid_labor_card || null,
         },
         include: { user: true },
       });
 
+      this.logger.debug(`Préstamo creado con ID: ${newLoan.id}`);
+
       // Generar PDFs antes de enviar el correo
       try {
-        // Obtener detalles del usuario para los PDFs
-        const user = await this.prisma.user.findUnique({
-          where: {
-            id: data.userId,
-          },
-          include: { Document: true },
-        });
-
-        // Preparar parámetros de los documentos
+        // Preparar parámetros de los documentos usando los datos del usuario ya obtenidos
         const documentsParams = [
           // Documento sobre el préstamo
           {
             documentType: 'about-loan',
             signature: newLoan.signature,
-            numberDocument: user?.Document[0]?.number ?? '',
+            numberDocument: user.Document[0]?.number ?? '',
             entity: newLoan.entity,
             accountNumber: newLoan.bankNumberAccount,
             userId: data.userId,
@@ -91,24 +120,24 @@ export class LoanService {
           {
             documentType: 'instruction-letter',
             signature: newLoan.signature,
-            numberDocument: user?.Document[0]?.number ?? '',
-            name: `${user?.names} ${user?.firstLastName} ${user?.secondLastName}`,
+            numberDocument: user.Document[0]?.number ?? '',
+            name: `${user.names} ${user.firstLastName} ${user.secondLastName}`,
             userId: data.userId,
           } as any,
           // Autorización de pago de salario
           {
             documentType: 'salary-payment-authorization',
             signature: newLoan.signature,
-            numberDocument: user?.Document[0]?.number ?? '',
-            name: `${user?.names} ${user?.firstLastName} ${user?.secondLastName}`,
+            numberDocument: user.Document[0]?.number ?? '',
+            name: `${user.names} ${user.firstLastName} ${user.secondLastName}`,
             userId: data.userId,
           } as any,
           // Pagaré
           {
             documentType: 'promissory-note',
             signature: newLoan.signature,
-            numberDocument: user?.Document[0]?.number ?? '',
-            name: `${user?.names} ${user?.firstLastName} ${user?.secondLastName}`,
+            numberDocument: user.Document[0]?.number ?? '',
+            name: `${user.names} ${user.firstLastName} ${user.secondLastName}`,
             userId: data.userId
           } as any,
         ];
@@ -133,7 +162,8 @@ export class LoanService {
 
       return newLoan as unknown as ILoanApplication; // Conversión de tipo necesaria
     } catch (error) {
-      throw new BadRequestException('Error al crear la solicitud de préstamo');
+      this.logger.error('Error en la creación del préstamo:', error);
+      throw new BadRequestException(`Error al crear la solicitud de préstamo: ${error.message || 'Error desconocido'}`);
     }
   }
 
@@ -256,7 +286,7 @@ export class LoanService {
         fisrt_flyer: preLoan.fisrt_flyer,
         upid_first_flayer: preLoan.upid_first_flayer,
         second_flyer: preLoan.second_flyer,
-        uupid_second_flyer: preLoan.upid_second_flayer,
+        upid_second_flyer: preLoan.upid_second_flayer,
         third_flyer: preLoan.third_flyer,
         upid_third_flayer: preLoan.upid_third_flayer,
         labor_card: preLoan.labor_card,
