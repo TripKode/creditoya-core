@@ -310,14 +310,19 @@ export class ClientService {
     );
   }
 
-  async updateDocument(userId: string, documentSides: Express.Multer.File): Promise<User | null> {
+  async updateDocument(userId: string, documentFile: Express.Multer.File): Promise<User | null> {
     try {
       this.logger.log(`Iniciando actualización de documento para usuario ${userId}`);
 
-      // Verificar que documentSides no sea null/undefined
-      if (!documentSides || !documentSides.buffer) {
-        this.logger.error('El archivo es inválido o está vacío');
-        throw new Error('El archivo de documento es inválido');
+      // Validación detallada del archivo
+      if (!documentFile) {
+        this.logger.error('El archivo es nulo');
+        throw new Error('No se recibió ningún archivo');
+      }
+
+      if (!documentFile.buffer || documentFile.buffer.length === 0) {
+        this.logger.error(`El archivo está vacío o corrupto: tamaño=${documentFile.size}, mimetype=${documentFile.mimetype}`);
+        throw new Error('El archivo está vacío o corrupto');
       }
 
       const user = await this.prisma.user.findUnique({
@@ -327,45 +332,62 @@ export class ClientService {
 
       this.logger.log(`Usuario encontrado: ${!!user}, documentos: ${user?.Document?.length || 0}`);
 
-      if (!user) throw new Error('Usuario no encontrado');
+      if (!user) {
+        throw new Error('Usuario no encontrado');
+      }
+
       if (!user.Document || user.Document.length === 0) {
+        this.logger.warn(`Usuario ${userId} no tiene documentos registrados`);
         throw new Error('Usuario no tiene documentos registrados');
       }
 
       // Crear un ID único para el documento
       const upId = uuid.v4();
-      this.logger.log(`ID generado para el documento: ${upId}`);
 
-      // Preparar y verificar los datos antes de la subida
+      // Determinar la extensión del archivo basada en su mimetype
+      let extension = 'pdf';
+      if (documentFile.mimetype.includes('jpeg') || documentFile.mimetype.includes('jpg')) {
+        extension = 'jpg';
+      } else if (documentFile.mimetype.includes('png')) {
+        extension = 'png';
+      }
+
+      const fileName = `ccScans-${userId}-${upId}.${extension}`;
+
       this.logger.log('Preparando subida a GCS:', {
-        fileSize: documentSides.size,
-        mimeType: documentSides.mimetype,
-        fileName: `ccScans-${userId}-${upId}.pdf`
+        fileSize: documentFile.size,
+        mimeType: documentFile.mimetype,
+        fileName
       });
 
-      // Subida de PDF a Google Cloud con mejor manejo de errores
-      const uploadResult = await this.googleCloud.uploadToGcs({
-        file: documentSides,
-        userId,
-        name: 'ccScans',
-        upId,
-        contentType: documentSides.mimetype,
-      }).catch((error) => {
-        // Log detallado del error
-        this.logger.error(`Error específico en uploadToGcs: ${error.message}`, error);
+      // Implementar reintentos para la subida a Google Cloud
+      let uploadAttempt = 0;
+      const MAX_ATTEMPTS = 3;
+      let uploadResult: { success: boolean; public_name: string } | null = null;
 
-        // Si es un error de autenticación o permisos
-        if (error.message && error.message.includes('permission') || error.message.includes('auth')) {
-          this.logger.error('Error de permisos o autenticación con Google Cloud');
+      while (uploadAttempt < MAX_ATTEMPTS && !uploadResult) {
+        uploadAttempt++;
+        this.logger.log(`Intento de subida a GCS #${uploadAttempt}`);
+
+        try {
+          uploadResult = await this.googleCloud.uploadToGcs({
+            file: documentFile,
+            userId,
+            name: 'ccScans',
+            upId,
+            contentType: documentFile.mimetype,
+          });
+        } catch (uploadError) {
+          this.logger.error(`Error en intento ${uploadAttempt} de subida a GCS: ${uploadError.message}`, uploadError);
+
+          if (uploadAttempt === MAX_ATTEMPTS) {
+            throw new Error(`Error al subir el documento después de ${MAX_ATTEMPTS} intentos: ${uploadError.message}`);
+          }
+
+          // Esperar un poco antes del siguiente intento
+          await new Promise(resolve => setTimeout(resolve, 1000));
         }
-
-        // Si es un error de bucket no encontrado
-        if (error.message && error.message.includes('bucket') || error.message.includes('not found')) {
-          this.logger.error('Error con el bucket de Google Cloud');
-        }
-
-        return null;
-      });
+      }
 
       this.logger.log('Resultado de la subida:', uploadResult);
 
@@ -375,9 +397,11 @@ export class ClientService {
 
       const { success, public_name } = uploadResult;
 
-      this.logger.warn('Subida de documento a Google Cloud Storage:', { success, public_name });
+      this.logger.log('Subida de documento a Google Cloud Storage:', { success, public_name });
 
-      if (!success || !public_name) throw new Error('Error al subir el documento a Google Cloud Storage');
+      if (!success || !public_name) {
+        throw new Error('Error al subir el documento a Google Cloud Storage');
+      }
 
       // Actualiza los documentos del usuario
       try {
@@ -391,7 +415,7 @@ export class ClientService {
           })
         ));
 
-        this.logger.warn('Documentos actualizados correctamente:', updatedDocuments.length);
+        this.logger.log('Documentos actualizados correctamente:', updatedDocuments.length);
 
         const updatedUser = await this.prisma.user.findUnique({
           where: { id: userId },
@@ -412,23 +436,105 @@ export class ClientService {
   }
 
   async updateImageWithCC(userId: string, imageWithCC: Express.Multer.File): Promise<Document | null> {
-    const document = await this.prisma.document.findFirst({
-      where: { userId },
-    });
+    try {
+      this.logger.log(`Iniciando actualización de selfie para usuario ${userId}`);
 
-    if (!document) {
-      throw new Error('No se encontró documento para este usuario');
+      // Validación detallada del archivo
+      if (!imageWithCC) {
+        this.logger.error('La imagen es nula');
+        throw new Error('No se recibió ninguna imagen');
+      }
+
+      if (!imageWithCC.buffer || imageWithCC.buffer.length === 0) {
+        this.logger.error(`La imagen está vacía o corrupta: tamaño=${imageWithCC.size}, mimetype=${imageWithCC.mimetype}`);
+        throw new Error('La imagen está vacía o corrupta');
+      }
+
+      // Buscar el documento del usuario
+      const document = await this.prisma.document.findFirst({
+        where: { userId },
+      });
+
+      if (!document) {
+        this.logger.warn(`No se encontró documento para el usuario ${userId}`);
+        throw new Error('No se encontró documento para este usuario');
+      }
+
+      this.logger.log('Documento encontrado, procediendo a convertir imagen');
+
+      // Procesamiento de imagen optimizado
+      let imageBase64;
+      try {
+        // Convertir el archivo a base64
+        imageBase64 = await FileToString(imageWithCC);
+
+        // Validación del formato base64
+        if (!imageBase64 || !imageBase64.startsWith('data:image/')) {
+          throw new Error('Error al convertir imagen a formato válido');
+        }
+
+        this.logger.log('Imagen convertida correctamente a base64');
+      } catch (conversionError) {
+        this.logger.error('Error al convertir imagen:', conversionError);
+        throw new Error('Error al procesar la imagen. El formato no es compatible.');
+      }
+
+      // Implementar reintentos para la subida a Cloudinary
+      let uploadAttempt = 0;
+      const MAX_ATTEMPTS = 3;
+      let urlImage: string | null = null;
+
+      const folder = 'images_with_cc';
+      const publicId = `selfie-${userId}-${Date.now()}`; // Añadir timestamp para evitar problemas de caché
+
+      this.logger.log('Configuración para subida a Cloudinary:', {
+        folder,
+        publicId
+      });
+
+      while (uploadAttempt < MAX_ATTEMPTS && !urlImage) {
+        uploadAttempt++;
+        this.logger.log(`Intento de subida a Cloudinary #${uploadAttempt}`);
+
+        try {
+          // Subir imagen a Cloudinary
+          urlImage = await this.cloudinary.uploadImage(imageBase64, folder, publicId);
+
+          if (!urlImage) {
+            throw new Error('URL de imagen vacía devuelta por Cloudinary');
+          }
+
+          this.logger.log('Imagen subida correctamente a Cloudinary');
+        } catch (uploadError) {
+          this.logger.error(`Error en intento ${uploadAttempt} de subida a Cloudinary: ${uploadError.message}`);
+
+          if (uploadAttempt === MAX_ATTEMPTS) {
+            throw new Error(`Error al subir imagen después de ${MAX_ATTEMPTS} intentos: ${uploadError.message}`);
+          }
+
+          // Esperar un poco antes del siguiente intento
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+      }
+
+      // Actualizar el documento en la base de datos
+      try {
+        const updatedDocument = await this.prisma.document.update({
+          where: { id: document.id },
+          data: { imageWithCC: urlImage ?? 'No definido' },
+        });
+
+        this.logger.log('Documento actualizado correctamente con la nueva selfie');
+
+        return updatedDocument;
+      } catch (dbError) {
+        this.logger.error('Error actualizando el documento en la base de datos:', dbError);
+        throw new Error(`Error al guardar la imagen en la base de datos: ${dbError.message}`);
+      }
+    } catch (error) {
+      this.logger.error(`Error general en updateImageWithCC: ${error.message}`, error);
+      throw error;
     }
-
-    const imageBase64 = await FileToString(imageWithCC);
-    const folder = 'images_with_cc';
-    const publicId = `selfie-${userId}`;
-    const urlImage = await this.cloudinary.uploadImage(imageBase64, folder, publicId);
-
-    return this.prisma.document.update({
-      where: { id: document.id },
-      data: { imageWithCC: urlImage },
-    });
   }
 
   async listDocuments(userId: string): Promise<Document[]> {

@@ -180,26 +180,71 @@ export class ClientController {
     return updateAvatar;
   }
 
-  // El cliente solo puede actualizar sus propios documentos
   @UseGuards(ClientAuthGuard)
   @Put(':userId/document')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: {
+        fileSize: 10 * 1024 * 1024, // 10MB límite
+      },
+      fileFilter: (req, file, callback) => {
+        const validMimeTypes = [
+          'application/pdf',
+          'image/jpeg',
+          'image/jpg',
+          'image/png'
+        ];
+
+        if (!validMimeTypes.includes(file.mimetype)) {
+          return callback(
+            new HttpException(
+              'Tipo de archivo no válido. Se permiten PDF, JPEG, JPG y PNG.',
+              HttpStatus.BAD_REQUEST
+            ),
+            false
+          );
+        }
+
+        callback(null, true);
+      },
+    }),
+  )
   async updateDocument(
     @Param('userId') userId: string,
     @UploadedFile() file: Express.Multer.File,
     @CurrentUser() user: any,
   ): Promise<User> {
     try {
-      this.logger.warn(file, userId, user);
+      this.logger.log('Iniciando proceso de actualización de documento');
+      this.logger.log('Datos recibidos:', {
+        userId,
+        employeedId: user.id,
+        filePresente: !!file,
+        fileSize: file?.size,
+        fileMimetype: file?.mimetype,
+        userType: user?.type,
+      });
 
       // Verificar si el usuario está actualizando sus propios documentos
       if (user.type === 'client' && user.id !== userId) {
+        this.logger.warn(`Usuario ${user.id} intentó modificar documentos de otro usuario ${userId}`);
         throw new HttpException('No autorizado', HttpStatus.FORBIDDEN);
+      }
+
+      // Validación explícita del archivo
+      if (!file) {
+        this.logger.error('No se recibió ningún archivo');
+        throw new HttpException('No se recibió ningún archivo', HttpStatus.BAD_REQUEST);
+      }
+
+      if (!file.buffer || file.buffer.length === 0) {
+        this.logger.error('El archivo está vacío o corrupto');
+        throw new HttpException('El archivo está vacío o corrupto', HttpStatus.BAD_REQUEST);
       }
 
       const updatedDocument = await this.clientService.updateDocument(user.id, file);
 
-      this.logger.warn("result update doc: ", updatedDocument);
+      this.logger.log("Resultado de actualización de documento:", !!updatedDocument);
 
       if (!updatedDocument) {
         throw new HttpException('Error al actualizar el documento', HttpStatus.BAD_REQUEST);
@@ -207,32 +252,123 @@ export class ClientController {
 
       return updatedDocument;
     } catch (error) {
-      throw new HttpException(error.message, HttpStatus.BAD_REQUEST);
+      this.logger.error(`Error en updateDocument: ${error.message}`, error.stack);
+
+      // Proporcionar mensajes de error más específicos
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      if (error.message.includes('Usuario no tiene documentos registrados')) {
+        throw new HttpException('El usuario no tiene documentos registrados. Por favor, contacte con soporte.', HttpStatus.BAD_REQUEST);
+      }
+
+      throw new HttpException(
+        error.message || 'Error al procesar el documento',
+        HttpStatus.BAD_REQUEST
+      );
     }
   }
 
   @UseGuards(ClientAuthGuard)
   @Put(':userId/document/selfie')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: {
+        fileSize: 5 * 1024 * 1024, // 5MB límite para selfies
+      },
+      fileFilter: (req, file, callback) => {
+        const validMimeTypes = [
+          'image/jpeg',
+          'image/jpg',
+          'image/png'
+        ];
+
+        if (!validMimeTypes.includes(file.mimetype)) {
+          return callback(
+            new HttpException(
+              'Tipo de archivo no válido. Solo se permiten JPEG, JPG y PNG.',
+              HttpStatus.BAD_REQUEST
+            ),
+            false
+          );
+        }
+
+        callback(null, true);
+      },
+    }),
+  )
   async updateSelfie(
     @Param('userId') userId: string,
     @UploadedFile() file: Express.Multer.File,
     @CurrentUser() user: any,
   ) {
     try {
+      this.logger.log('Iniciando proceso de actualización de selfie');
+      this.logger.log('Datos recibidos:', {
+        userId,
+        filePresente: !!file,
+        fileSize: file?.size,
+        fileMimetype: file?.mimetype,
+        userType: user?.type,
+        employeedId: user?.id
+      });
+
       // Verificar si el usuario está actualizando sus propios documentos
       if (user.type === 'client' && user.id !== userId) {
+        this.logger.warn(`Usuario ${user.id} intentó modificar selfie de otro usuario ${userId}`);
         throw new HttpException('No autorizado', HttpStatus.FORBIDDEN);
       }
 
-      // Si no hay archivo, lanzar error
+      // Validación explícita del archivo
       if (!file) {
+        this.logger.error('No se recibió ninguna imagen');
         throw new HttpException('No se ha proporcionado ninguna imagen', HttpStatus.BAD_REQUEST);
       }
 
-      return await this.clientService.updateImageWithCC(user.id, file);
+      if (!file.buffer || file.buffer.length === 0) {
+        this.logger.error('La imagen está vacía o corrupta');
+        throw new HttpException('La imagen está vacía o corrupta', HttpStatus.BAD_REQUEST);
+      }
+
+      // Verificar que el formato de imagen sea adecuado
+      try {
+        // Si hay alguna validación adicional de imagen, podría hacerse aquí
+        this.logger.log('Imagen válida, procediendo a actualizar selfie');
+      } catch (imgError) {
+        this.logger.error('Error validando imagen:', imgError);
+        throw new HttpException('El formato de imagen no es válido', HttpStatus.BAD_REQUEST);
+      }
+
+      const updatedDocument = await this.clientService.updateImageWithCC(user.id, file);
+
+      this.logger.log("Resultado de actualización de selfie:", !!updatedDocument);
+
+      if (!updatedDocument) {
+        throw new HttpException('Error al actualizar la imagen', HttpStatus.BAD_REQUEST);
+      }
+
+      return updatedDocument;
     } catch (error) {
-      throw new HttpException(error.message, HttpStatus.BAD_REQUEST);
+      this.logger.error(`Error en updateSelfie: ${error.message}`, error.stack);
+
+      // Proporcionar mensajes de error más específicos
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      if (error.message.includes('No se encontró documento')) {
+        throw new HttpException('No se encontró información de documento para este usuario. Por favor, complete el registro primero.', HttpStatus.BAD_REQUEST);
+      }
+
+      if (error.message.includes('Error al subir imagen')) {
+        throw new HttpException('Error al procesar la imagen. Por favor, intente con otra foto.', HttpStatus.BAD_REQUEST);
+      }
+
+      throw new HttpException(
+        error.message || 'Error al procesar la imagen',
+        HttpStatus.BAD_REQUEST
+      );
     }
   }
 
