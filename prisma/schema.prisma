@@ -59,9 +59,9 @@ model UsersIntranet {
 }
 
 model PreLoanApplication {
-    id                   String   @id @default(uuid()) @map("_id")
+    id                   String    @id @default(uuid()) @map("_id")
     userId               String
-    user                 User     @relation(fields: [userId], references: [id])
+    user                 User      @relation(fields: [userId], references: [id])
     bankNumberAccount    String
     entity               String
     labor_card           String?
@@ -77,8 +77,12 @@ model PreLoanApplication {
     upSignatureId        String
     cantity              String
     token                String
-    created_at           DateTime @default(now())
-    updated_at           DateTime @updatedAt
+    // Nuevos campos para prevenir duplicados
+    processed            Boolean   @default(false)
+    processedAt          DateTime?
+    loanApplicationId    String? // Referencia al préstamo creado
+    created_at           DateTime  @default(now())
+    updated_at           DateTime  @updatedAt
 }
 
 model LoanApplication {

@@ -263,6 +263,7 @@ export class LoanService {
 
   async verifyPreLoan(token: string, preId: string): Promise<CreateLoanApplicationDto> {
     try {
+      // Buscar la solicitud pre-préstamo
       const preLoan = await this.prisma.preLoanApplication.findUnique({
         where: { id: preId },
         include: { user: true },
@@ -272,11 +273,33 @@ export class LoanService {
         throw new NotFoundException('Solicitud de préstamo no encontrada');
       }
 
-      // Check if the token is valid
+      // Verificar si el token es válido
       if (preLoan.token !== token) {
         throw new BadRequestException('Token inválido o ha expirado');
       }
 
+      // NUEVA FUNCIONALIDAD: Verificar si ya existe un préstamo creado a partir de este pre-préstamo
+      // Primero, verificar si hay un préstamo con los mismos datos únicos del pre-préstamo
+      const existingLoan = await this.prisma.loanApplication.findFirst({
+        where: {
+          userId: preLoan.userId,
+          entity: preLoan.entity,
+          bankNumberAccount: preLoan.bankNumberAccount,
+          upSignatureId: preLoan.upSignatureId, // Usar el ID de firma como identificador único
+          // También podemos agregar filtros adicionales para mayor seguridad
+          created_at: {
+            // Préstamos creados después de que se creó el pre-préstamo
+            gte: preLoan.created_at
+          }
+        }
+      });
+
+      if (existingLoan) {
+        this.logger.warn(`Intento de crear préstamo duplicado para el preId: ${preId}, token: ${token}`);
+        throw new BadRequestException('Esta solicitud de préstamo ya ha sido procesada anteriormente');
+      }
+
+      // Preparar los datos para crear el préstamo
       const bodyReqLoan: CreateLoanApplicationDto = {
         userId: preLoan.userId,
         entity: preLoan.entity,
@@ -295,96 +318,40 @@ export class LoanService {
         upSignatureId: preLoan.upSignatureId,
       }
 
+      // Crear el nuevo préstamo
       const newLoan = await this.create(bodyReqLoan);
 
       if (!newLoan) {
         throw new BadRequestException('Error al crear la solicitud de préstamo');
       }
 
+      // NUEVA FUNCIONALIDAD: Marcar el pre-préstamo como utilizado
+      // Actualizar el pre-préstamo para indicar que ya ha sido procesado
+      // Creamos un nuevo campo en el modelo PreLoanApplication para realizar un seguimiento
+      await this.prisma.preLoanApplication.update({
+        where: { id: preId },
+        data: {
+          // Añadir un campo para indicar que ya ha sido procesado y vincular con el ID del préstamo creado
+          processed: true,
+          processedAt: new Date(),
+          loanApplicationId: newLoan.id
+        },
+      });
+
       // Enviar correo al usuario con información del préstamo
       await this.mailService.sendMailByUser({
         subject: 'Solicitud de préstamo creada',
         content: `Su solicitud de préstamo ha sido creada con éxito. ID: ${newLoan.id}. Los documentos necesarios han sido generados y están disponibles en su cuenta.`,
         addressee: newLoan.user?.email as string,
-      })
-
-      // Verificar registro con TripChain (BETA)
-
-      // Hash
-      // await this.prisma.preLoanApplication.update({
-      //   where: { id: preId },
-      //   data: { hash },
-      // });
+      });
 
       // Return the data that was used to create the loan
       return bodyReqLoan;
     } catch (error) {
       this.logger.error('Error verifying pre-loan:', error);
-      throw new BadRequestException('Error al verificar la solicitud de préstamo');
+      throw new BadRequestException(`Error al verificar la solicitud de préstamo: ${error.message || 'Error desconocido'}`);
     }
   }
-
-  // // Método para obtener una solicitud de préstamo por su ID
-  // async get(id: string, options: { generateSignedUrls?: boolean } = {}): Promise<LoanApplication & { documents?: any[] }> {
-  //   // Obtener el préstamo directamente sin caché
-  //   const loan = await this.prisma.loanApplication.findUnique({
-  //     where: { id },
-  //     include: {
-  //       user: {
-  //         include: {
-  //           Document: true,
-  //         },
-  //       },
-  //       GeneratedDocuments: true
-  //     },
-  //   });
-
-  //   if (!loan) {
-  //     throw new NotFoundException(`Solicitud de préstamo con ID ${id} no encontrada`);
-  //   }
-
-  //   // Procesar los documentos generados
-  //   if (loan.GeneratedDocuments && loan.GeneratedDocuments.length > 0) {
-  //     // Vamos a manejar los documentos para añadir URLs firmadas o descargas directas
-  //     const enhancedDocuments = await Promise.all(
-  //       loan.GeneratedDocuments.map(async (doc) => {
-  //         // Solo procesar si es un documento ZIP
-  //         if (doc.fileType === 'application/zip' || doc.fileType.includes('zip')) {
-  //           try {
-  //             // Opción 1: Generar URL firmada con tiempo limitado (5 minutos)
-  //             if (options.generateSignedUrls !== false) {
-  //               const signedUrl = await this.gcpService.getSignedUrl(
-  //                 doc.publicUrl || `${doc.uploadId}.zip`,
-  //                 5 // 5 minutos de tiempo de expiración
-  //               );
-
-  //               return {
-  //                 ...doc,
-  //                 signedUrl,
-  //                 fileInfo: await this.getZipFileInfo(doc)
-  //               };
-  //             }
-  //             // La URL pública ya está incluida en el documento
-  //           } catch (error) {
-  //             this.logger.error(`Error processing ZIP document ${doc.id}:`, error);
-  //             // Devolvemos el documento sin cambios si hay un error
-  //           }
-  //         }
-  //         return doc;
-  //       })
-  //     );
-
-  //     // Añadir los documentos procesados al resultado
-  //     const result = {
-  //       ...loan,
-  //       GeneratedDocuments: enhancedDocuments
-  //     };
-
-  //     return result;
-  //   }
-
-  //   return loan;
-  // }
 
   // Método para actualizar una solicitud de préstamo
   async update(id: string, data: UpdateLoanApplicationDto): Promise<LoanApplication> {
