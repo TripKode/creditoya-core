@@ -4,7 +4,7 @@ interface GenerateUpIdsProps {
     isSignature?: boolean;
 }
 
-type IdKeys = 'upid_first_flayer' | 'uupid_second_flyer' | 'upid_third_flayer' | 'upid_labor_card' | 'upSignatureId';
+type IdKeys = 'upid_first_flyer' | 'upid_second_flyer' | 'upid_third_flyer' | 'upid_labor_card' | 'upSignatureId';
 
 type GeneratedIds = Partial<Record<IdKeys, string>>;
 
@@ -21,9 +21,9 @@ export function RandomUpIdsGenerator({
     const result: GeneratedIds = {};
 
     if (isFlyer) {
-        result.upid_first_flayer = randomId();
-        result.uupid_second_flyer = randomId();
-        result.upid_third_flayer = randomId();
+        result.upid_first_flyer = randomId();
+        result.upid_second_flyer = randomId();
+        result.upid_third_flyer = randomId();
     }
 
     if (isLaborCard) {

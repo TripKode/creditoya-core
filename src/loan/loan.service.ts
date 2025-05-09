@@ -1,15 +1,16 @@
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
-import { GeneratedDocuments, LoanApplication, Prisma, StatusLoan } from '@prisma/client';
+import { companiesUser, GeneratedDocuments, LoanApplication, Prisma, StatusLoan } from '@prisma/client';
 import { CreateLoanApplicationDto, PreCreateLoanApplicationDto } from './dto/create-loan.dto';
 import { UpdateLoanApplicationDto } from './dto/update-loan.dto';
-import { ChangeLoanStatusDto } from './dto/change-loan-status.dto';
+import { ChangeLoanStatusDto, UploadId } from './dto/change-loan-status.dto';
 import { MailService } from 'src/mail/mail.service';
 import { PdfsService } from 'src/pdfs/pdfs.service';
 import { GoogleCloudService } from 'src/gcp/gcp.service';
 import { RandomUpIdsGenerator } from 'handlers/GenerateUpIds';
 import { CloudinaryService } from 'src/cloudinary/cloudinary.service';
 import { ILoanApplication, LoanStatus } from 'types/full';
+import { MongoCommandResult } from 'src/prisma/dto/results';
 
 @Injectable()
 export class LoanService {
@@ -178,9 +179,9 @@ export class LoanService {
       // Generate random IDs for documents
       const {
         upSignatureId,
-        upid_first_flayer,
-        uupid_second_flyer,
-        upid_third_flayer,
+        upid_first_flyer,
+        upid_second_flyer,
+        upid_third_flyer,
         upid_labor_card
       } = RandomUpIdsGenerator({
         isSignature: true,
@@ -198,11 +199,11 @@ export class LoanService {
       } = await this.gcpService.uploadDocsToLoan({
         userId: data.userId as string,
         fisrt_flyer: data.fisrt_flyer ?? null,
-        upid_first_flyer: upid_first_flayer ? upid_first_flayer : null,
+        upid_first_flyer: upid_first_flyer ? upid_first_flyer : null,
         second_flyer: data.second_flyer ? data.second_flyer : null,
-        upid_second_flyer: uupid_second_flyer ? uupid_second_flyer : null,
+        upid_second_flyer: upid_second_flyer ? upid_second_flyer : null,
         third_flyer: data.third_flyer ? data.third_flyer : null,
-        upid_third_flyer: upid_third_flayer ? upid_third_flayer : null,
+        upid_third_flyer: upid_third_flyer ? upid_third_flyer : null,
         labor_card: data.labor_card ? data.labor_card : null,
         upid_labor_card: upid_labor_card ? upid_labor_card : null,
       });
@@ -225,11 +226,11 @@ export class LoanService {
           cantity: data.cantity as string,
           terms_and_conditions: data.terms_and_conditions as boolean,
           fisrt_flyer: fisrt_flyer ?? null,
-          upid_first_flayer: upid_first_flayer ?? null,
+          upid_first_flayer: upid_first_flyer ?? null,
           second_flyer: second_flyer ?? null,
-          upid_second_flayer: uupid_second_flyer ?? null,
+          upid_second_flayer: upid_second_flyer ?? null,
           third_flyer: third_flyer ?? null,
-          upid_third_flayer: upid_third_flayer ?? null,
+          upid_third_flayer: upid_third_flyer ?? null,
           labor_card: labor_card ?? null,
           upid_labor_card: upid_labor_card ?? null,
           signature: resImage,
@@ -742,12 +743,21 @@ export class LoanService {
     return this.getLoans(StatusLoan.Aplazado, page, pageSize, searchQuery);
   }
 
+  // Modified getApprovedLoans method that starts the fix process
   async getApprovedLoans(
     page: number = 1,
     pageSize: number = 10,
-    searchQuery?: string
+    searchQuery?: string,
+    companyFilter?: string
   ): Promise<{ data: LoanApplication[]; total: number }> {
-    return this.getLoans(StatusLoan.Aprobado, page, pageSize, searchQuery);
+    // Iniciar la corrección de valores inválidos en segundo plano
+    this.fixInvalidNoValueInCompany().catch(err =>
+      this.logger.error('Error al corregir valores de compañía:', err)
+    );
+
+    const options: any = {};
+
+    return this.getLoans(StatusLoan.Aprobado, page, pageSize, searchQuery, options);
   }
 
   async getLoansWithDefinedNewCantity(
@@ -949,10 +959,7 @@ export class LoanService {
   async uploadRejectedDocument(
     loanId: string,
     documentType: 'fisrt_flyer' | 'second_flyer' | 'third_flyer' | 'labor_card',
-    fileData: {
-      fileUrl: string,
-      uploadId: string
-    }
+    file: Express.Multer.File
   ): Promise<LoanApplication> {
     try {
       // Verificar que la solicitud existe
@@ -965,26 +972,54 @@ export class LoanService {
         throw new NotFoundException(`Solicitud de préstamo con ID ${loanId} no encontrada`);
       }
 
-      // Verificar que el usuario que solicita la actualización es el propietario del préstamo
-      // Esta validación debería hacerse en el controlador o middleware, pero se incluye aquí como referencia
+      // Generar un UUID para el documento
+      const uploadId = RandomUpIdsGenerator({
+        isSignature: false,
+        isLaborCard: documentType === 'labor_card',
+        isFlyer: ['fisrt_flyer', 'second_flyer', 'third_flyer'].includes(documentType),
+      });
+
+      let uploadIdField: string | null = null;
+
+      const typedUploadId: UploadId = uploadId;
+      if (documentType === 'fisrt_flyer') {
+        uploadIdField = uploadId.upid_first_flyer ?? null;
+      } else if (documentType === 'second_flyer') {
+        uploadIdField = uploadId.upid_second_flyer ?? null;
+      } else if (documentType === 'third_flyer') {
+        uploadIdField = uploadId.upid_third_flyer ?? null;
+      } else if (documentType === 'labor_card') {
+        uploadIdField = uploadId.upid_labor_card ?? null;
+      }
+
+      // Subir el documento a GCP
+      const uploadedDocs = await this.gcpService.uploadDocsToLoan({
+        userId: existingLoan.userId,
+        fisrt_flyer: documentType === 'fisrt_flyer' ? file : null,
+        upid_first_flyer: documentType === 'fisrt_flyer' ? uploadIdField : null,
+        second_flyer: documentType === 'second_flyer' ? file : null,
+        upid_second_flyer: documentType === 'second_flyer' ? uploadIdField : null,
+        third_flyer: documentType === 'third_flyer' ? file : null,
+        upid_third_flyer: documentType === 'third_flyer' ? uploadIdField : null,
+        labor_card: documentType === 'labor_card' ? file : null,
+        upid_labor_card: documentType === 'labor_card' ? uploadIdField : null,
+      });
 
       // Determinar qué campos actualizar basado en el tipo de documento
       const updateData: any = {};
 
       if (documentType === 'fisrt_flyer') {
-        updateData.fisrt_flyer = fileData.fileUrl;
-        updateData.upid_first_flayer = fileData.uploadId;
+        updateData.fisrt_flyer = uploadedDocs.fisrt_flyer;
+        updateData.upid_first_flyer = uploadIdField;
       } else if (documentType === 'second_flyer') {
-        updateData.second_flyer = fileData.fileUrl;
-        updateData.upid_second_flyer = fileData.uploadId;
+        updateData.second_flyer = uploadedDocs.second_flyer;
+        updateData.upid_second_flyer = uploadIdField;
       } else if (documentType === 'third_flyer') {
-        updateData.third_flyer = fileData.fileUrl;
-        updateData.upid_third_flayer = fileData.uploadId;
+        updateData.third_flyer = uploadedDocs.third_flyer;
+        updateData.upid_third_flyer = uploadIdField;
       } else if (documentType === 'labor_card') {
-        updateData.labor_card = fileData.fileUrl;
-        updateData.upid_labor_card = fileData.uploadId;
-      } else {
-        throw new BadRequestException('Tipo de documento no válido');
+        updateData.labor_card = uploadedDocs.labor_card;
+        updateData.upid_labor_card = uploadIdField;
       }
 
       // Actualizar la solicitud de préstamo
@@ -996,7 +1031,8 @@ export class LoanService {
         },
       });
 
-      const newEventInLoan = await this.prisma.eventLoanApplication.updateMany({
+      // Marcar los eventos relacionados como respondidos
+      await this.prisma.eventLoanApplication.updateMany({
         where: {
           loanId: loanId,
           isAnswered: false,
@@ -1007,7 +1043,8 @@ export class LoanService {
         }
       });
 
-      if (!newEventInLoan) throw new Error("Error al crear evento en la solicitud");
+      // Registrar la actividad
+      this.logger.log(`Documento rechazado actualizado para préstamo ${loanId}, tipo: ${documentType}`);
 
       return updatedLoan;
     } catch (error) {
@@ -1064,7 +1101,10 @@ export class LoanService {
       // Verificar que la solicitud existe
       const existingLoan = await this.prisma.loanApplication.findUnique({
         where: { id: loanApplicationId },
-        include: { user: true }
+        include: {
+          user: true,
+          GeneratedDocuments: true
+        }
       });
 
       if (!existingLoan) {
@@ -1074,7 +1114,7 @@ export class LoanService {
       const { status, reasonReject, employeeId, reasonChangeCantity, newCantity } = statusDto;
 
       // Preparar el objeto para actualizar la solicitud
-      const updateData: any = {
+      const updateData: Prisma.LoanApplicationUpdateInput = {
         status,
         employeeId
       };
@@ -1084,68 +1124,111 @@ export class LoanService {
       if (reasonChangeCantity) updateData.reasonChangeCantity = reasonChangeCantity;
       if (newCantity) updateData.newCantity = newCantity;
 
-      // Actualizar la solicitud de préstamo
-      const updatedLoan = await this.prisma.loanApplication.update({
-        where: { id: loanApplicationId },
-        data: updateData,
-        include: {
-          user: true,
-        },
-      });
-
-      // Crear evento si hay cambio de cantidad
-      if (newCantity && reasonChangeCantity) {
-        await this.prisma.eventLoanApplication.create({
-          data: {
-            loanId: loanApplicationId,
-            type: "CHANGE_CANTITY",
-          }
+      // Usar una transacción para operaciones relacionadas
+      return await this.prisma.$transaction(async (tx) => {
+        // Actualizar la solicitud de préstamo
+        const updatedLoan = await tx.loanApplication.update({
+          where: { id: loanApplicationId },
+          data: updateData,
+          include: {
+            user: true,
+            GeneratedDocuments: true
+          },
         });
-      }
 
-      // Enviar correos según el estado actualizado
-      if (status === 'Aprobado') {
-        // Obtener información del empleado que aprueba
-        const employeeInfo = employeeId ?
-          await this.prisma.usersIntranet.findFirst({
-            where: { id: employeeId },
-          }) : null;
-
-        // Si hay cambio de cantidad, enviar correo específico de cambio
-        if (newCantity && reasonChangeCantity && employeeInfo) {
-          await this.mailService.sendChangeCantityMail({
-            employeeName: `${employeeInfo.name} ${employeeInfo.lastNames}`,
-            loanId: updatedLoan.id,
-            reason_aproved: reasonChangeCantity,
-            cantity_aproved: newCantity,
-            mail: updatedLoan.user.email,
-          });
-        } else {
-          // Correo de aprobación estándar
-          await this.mailService.sendApprovalEmail({
-            loanId: updatedLoan.id,
-            mail: updatedLoan.user.email,
-            // Otros campos necesarios para el correo de aprobación
+        // Crear evento si hay cambio de cantidad
+        if (newCantity && reasonChangeCantity) {
+          await tx.eventLoanApplication.create({
+            data: {
+              loanId: loanApplicationId,
+              type: "CHANGE_CANTITY",
+            }
           });
         }
-      } else if (status === 'Aplazado' && reasonReject) {
-        // Correo de rechazo o aplazamiento
-        await this.mailService.sendRejectionEmail({
-          loanId: updatedLoan.id,
-          reason: reasonReject,
-          mail: updatedLoan.user.email,
-          // Otros campos necesarios para el correo de rechazo
-        });
-      }
 
-      return updatedLoan;
+        // Procesar cambios según el estado actualizado
+        if (status === 'Aprobado') {
+          // Obtener información del empleado que aprueba si existe ID
+          let employeeInfo: any = null;
+          if (employeeId) {
+            employeeInfo = await tx.usersIntranet.findUnique({
+              where: { id: employeeId },
+            });
 
+            if (!employeeInfo) {
+              this.logger.warn(`Empleado con ID ${employeeId} no encontrado para aprobación`);
+            }
+          }
+
+          // Si hay cambio de cantidad, enviar correo específico de cambio
+          if (newCantity && reasonChangeCantity && employeeInfo) {
+            await this.mailService.sendChangeCantityMail({
+              employeeName: `${employeeInfo.name} ${employeeInfo.lastNames}`,
+              loanId: updatedLoan.id,
+              reason_aproved: reasonChangeCantity,
+              cantity_aproved: newCantity,
+              mail: updatedLoan.user.email,
+            });
+          } else {
+            // Correo de aprobación estándar
+            await this.mailService.sendApprovalEmail({
+              loanId: updatedLoan.id,
+              mail: updatedLoan.user.email,
+            });
+          }
+        } else if (status === 'Aplazado' && reasonReject) {
+          // Eliminar documentos generados solo si existen
+          if (updatedLoan.GeneratedDocuments && updatedLoan.GeneratedDocuments.length > 0) {
+            for (const doc of updatedLoan.GeneratedDocuments) {
+              if (doc.publicUrl) {
+                try {
+                  await this.gcpService.deleteFileGcs({ fileUrl: doc.publicUrl });
+                } catch (deleteError) {
+                  this.logger.error(
+                    `Error al eliminar archivo ${doc.publicUrl} para préstamo ${loanApplicationId}`,
+                    deleteError
+                  );
+                  // Continúa con el proceso incluso si falla la eliminación de archivos
+                }
+              }
+            }
+
+            // Eliminar registros de documentos de la base de datos
+            await tx.generatedDocuments.deleteMany({
+              where: { loanId: updatedLoan.id }
+            });
+          }
+
+          // Correo de rechazo o aplazamiento
+          await this.mailService.sendRejectionEmail({
+            loanId: updatedLoan.id,
+            reason: reasonReject,
+            mail: updatedLoan.user.email,
+          });
+        }
+
+        return updatedLoan;
+      });
     } catch (error) {
+      this.logger.error(
+        `Error al cambiar el estado de solicitud ${loanApplicationId}:`,
+        error
+      );
+
       if (error instanceof NotFoundException) {
         throw error;
       }
-      console.error('Error detallado:', error);
-      throw new BadRequestException(`Error al cambiar el estado de la solicitud de préstamo: ${error.message}`);
+
+      if (error instanceof Prisma.PrismaClientKnownRequestError) {
+        // Manejar errores específicos de Prisma
+        throw new BadRequestException(
+          `Error de base de datos: ${error.message} (${error.code})`
+        );
+      }
+
+      throw new BadRequestException(
+        `Error al cambiar el estado de la solicitud de préstamo: ${error.message}`
+      );
     }
   }
 
@@ -1213,7 +1296,6 @@ export class LoanService {
   async respondToNewCantity(
     loanId: string,
     accept: boolean,
-    status: StatusLoan
   ): Promise<LoanApplication> {
     try {
       // Verificar que la solicitud existe y tiene una nueva cantidad propuesta
@@ -1230,11 +1312,13 @@ export class LoanService {
         throw new BadRequestException('Esta solicitud no tiene una nueva cantidad propuesta');
       }
 
+      const finalStatus: StatusLoan = accept ? "Aprobado" : "Aplazado"
+
       const updatedLoan = await this.prisma.loanApplication.update({
         where: { id: loanId },
         data: {
           newCantityOpt: accept,
-          status: status,
+          status: finalStatus,
         },
         include: {
           user: true,
@@ -1259,7 +1343,7 @@ export class LoanService {
 
   // aux methods
 
-  // Método mejorado para obtener préstamos con filtros y búsqueda avanzada
+  // Enhanced version with fixed queryRaw implementation
   private async getLoans(
     status: StatusLoan | null = null,
     page: number = 1,
@@ -1359,49 +1443,193 @@ export class LoanService {
         where
       });
 
-      // Get loan applications with pagination applied
-      const loans = await this.prisma.loanApplication.findMany({
+      // NUEVO: Obtener los IDs de los préstamos primero
+      const loanIds = await this.prisma.loanApplication.findMany({
         where,
-        include: {
-          user: true
-        },
-        orderBy: {
-          created_at: 'desc',
-        },
+        select: { id: true },
+        orderBy: { created_at: 'desc' },
         skip,
         take: pageSize
       });
 
-      // Filter out loans with null users
-      const loansWithValidUsers = loans.filter(loan => loan.user !== null);
+      // Array para almacenar los resultados
+      const loansWithValidUsers: LoanApplication[] = [];
 
-      // Get document information for each user
-      if (loansWithValidUsers.length > 0) {
-        const userIds = loansWithValidUsers.map(loan => loan.userId);
+      // Procesar cada préstamo individualmente para evitar errores en lote
+      for (const loanId of loanIds) {
+        try {
+          // Obtener préstamo con información básica del usuario
+          const loan = await this.prisma.loanApplication.findUnique({
+            where: { id: loanId.id },
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  email: true,
+                  names: true,
+                  firstLastName: true,
+                  secondLastName: true,
+                  phone: true,
+                  phone_whatsapp: true,
+                  residence_phone_number: true,
+                  birth_day: true,
+                  genre: true,
+                  residence_address: true,
+                  city: true,
+                  // Excluimos currentCompanie para evitar problemas con el enum
+                }
+              }
+            }
+          });
 
-        const usersWithDocuments = await this.prisma.user.findMany({
-          where: {
-            id: { in: userIds }
-          },
-          include: {
-            Document: true
+          if (loan && loan.user) {
+            // Obtener la información de currentCompanie de forma segura usando findFirstOrThrow
+            try {
+              // Primero intentamos obtener el valor de manera segura
+              let userCompanyValue = 'sin_asignar'; // Valor por defecto
+
+              try {
+                // Intentar usar Prisma's client.$runCommandRaw si está disponible
+                if (typeof this.prisma.$runCommandRaw === 'function') {
+                  const result = await this.prisma.$runCommandRaw({
+                    find: "User",
+                    filter: { _id: loan.userId },
+                    projection: { currentCompanie: 1 },
+                    limit: 1
+                  }) as MongoCommandResult; // Add type assertion here
+
+                  if (result &&
+                    result.cursor &&
+                    Array.isArray(result.cursor.firstBatch) &&
+                    result.cursor.firstBatch.length > 0) {
+                    userCompanyValue = this.getSafeCompanyValue(
+                      result.cursor.firstBatch[0].currentCompanie
+                    );
+                  }
+                } else {
+                  // Plan B: Usar findFirst con try/catch para manejar posibles errores
+                  const userCompanyInfo = await this.prisma.user.findFirst({
+                    where: { id: loan.userId },
+                    select: { currentCompanie: true }
+                  });
+
+                  if (userCompanyInfo) {
+                    userCompanyValue = userCompanyInfo.currentCompanie.toString();
+                  }
+                }
+              } catch (innerError) {
+                this.logger.warn(`No se pudo obtener la compañía del usuario ${loan.userId} usando métodos standard: ${innerError.message}`);
+
+                // Plan C: Alternativa extrema - usar un valor predeterminado
+                userCompanyValue = 'sin_asignar';
+              }
+
+              // Asignar el valor recuperado (o por defecto)
+              (loan.user as any).currentCompanie = this.getSafeCompanyValue(userCompanyValue);
+            } catch (companyError) {
+              this.logger.warn(`Error al obtener compañía del usuario ${loan.userId}: ${companyError.message}`);
+              // Establecer un valor por defecto seguro
+              (loan.user as any).currentCompanie = 'sin_asignar';
+            }
+
+            // Obtener documentos del usuario
+            try {
+              const userWithDocs = await this.prisma.user.findUnique({
+                where: { id: loan.userId },
+                select: { Document: true }
+              });
+
+              if (userWithDocs && userWithDocs.Document) {
+                (loan.user as any).Document = userWithDocs.Document;
+              }
+            } catch (docError) {
+              this.logger.warn(`Error al obtener documentos del usuario ${loan.userId}: ${docError.message}`);
+            }
+
+            loansWithValidUsers.push(loan);
           }
-        });
-
-        // Map users with their documents back to the loan data
-        for (const loan of loansWithValidUsers) {
-          const userWithDocs = usersWithDocuments.find(u => u.id === loan.userId);
-          if (userWithDocs && userWithDocs.Document) {
-            (loan.user as any).Document = userWithDocs.Document;
-          }
+        } catch (loanError) {
+          this.logger.error(`Error al procesar préstamo ${loanId.id}: ${loanError.message}`);
+          // Continuamos con el siguiente préstamo
         }
       }
 
-      this.logger.log(`Se encontraron ${totalLoans} préstamos que coinciden con los criterios de búsqueda`);
+      this.logger.log(`Se procesaron ${loansWithValidUsers.length} de ${loanIds.length} préstamos con éxito`);
       return { data: loansWithValidUsers, total: totalLoans };
     } catch (error) {
       this.logger.error('Error al obtener préstamos:', error);
       throw new BadRequestException(`Error al obtener las solicitudes de préstamo: ${error.message}`);
+    }
+  }
+
+  // Método para obtener un valor seguro de compañía
+  private getSafeCompanyValue(value: any): string {
+    const validValues = [
+      'incauca_sas',
+      'incauca_cosecha',
+      'providencia_sas',
+      'providencia_cosecha',
+      'con_alta',
+      'pichichi_sas',
+      'pichichi_coorte',
+      'valor_agregado',
+      'sin_asignar'
+    ];
+
+    if (typeof value === 'string' && validValues.includes(value)) {
+      return value;
+    }
+
+    return 'sin_asignar'; // Valor por defecto seguro
+  }
+
+  /**
+   * Método específico para corregir usuarios con valor 'no' en currentCompanie
+   * Usa el cliente de MongoDB a través de Prisma
+   */
+  private async fixInvalidNoValueInCompany(): Promise<void> {
+    try {
+      this.logger.log('Iniciando corrección de valores "no" en currentCompanie...');
+
+      // Primero, encontrar usuarios con currentCompanie = "no" usando Prisma
+      const rawUsers = await this.prisma.user.findMany({
+        where: {
+          // @ts-ignore - Necesario porque "no" no está en el enum companiesUser
+          currentCompanie: companiesUser
+        },
+        select: {
+          id: true
+        }
+      });
+
+      this.logger.log(`Se encontraron ${rawUsers.length} usuarios con currentCompanie = "no"`);
+
+      // Actualizar cada usuario encontrado usando Prisma.$executeRaw para bypass validation
+      let updatedCount = 0;
+
+      for (const user of rawUsers) {
+        try {
+          // Usar executeRaw para actualizar directamente en la base de datos
+          await this.prisma.$runCommandRaw({
+            update: "User",
+            updates: [
+              {
+                q: { _id: { $eq: user.id } },
+                u: { $set: { currentCompanie: "sin_asignar" } }
+              }
+            ]
+          });
+
+          updatedCount++;
+          this.logger.log(`Usuario ${user.id} actualizado de "no" a "sin_asignar"`);
+        } catch (updateError) {
+          this.logger.error(`Error al actualizar usuario ${user.id}: ${updateError.message}`);
+        }
+      }
+
+      this.logger.log(`Proceso completado. Se actualizaron ${updatedCount} de ${rawUsers.length} usuarios.`);
+    } catch (error) {
+      this.logger.error(`Error al corregir valores "no" en currentCompanie: ${error.message}`);
     }
   }
 

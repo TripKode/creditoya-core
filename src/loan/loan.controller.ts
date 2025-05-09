@@ -20,6 +20,7 @@ import {
   Logger,
   ForbiddenException,
   NotFoundException,
+  UploadedFile,
 } from '@nestjs/common';
 import { LoanService } from './loan.service';
 import { UpdateLoanApplicationDto } from './dto/update-loan.dto';
@@ -297,16 +298,16 @@ export class LoanController {
   async respondToNewCantity(
     @Param('id', ParseUUIDPipe) id: string,
     @Body('accept', ParseBoolPipe) accept: boolean,
-    @Body('status') status: StatusLoan,
     @CurrentUser() user: any
   ) {
     // Verificar que el préstamo pertenece al cliente
     const loan = await this.loanService.get(id, user.id);
+
     if (user.type === 'client' && loan.userId !== user.id) {
       throw new BadRequestException('No autorizado para responder a este préstamo');
     }
 
-    return this.loanService.respondToNewCantity(id, accept, status);
+    return this.loanService.respondToNewCantity(id, accept);
   }
 
   // Solo administradores pueden eliminar préstamos
@@ -315,5 +316,43 @@ export class LoanController {
   @Delete(':id')
   async remove(@Param('id', ParseUUIDPipe) id: string) {
     return this.loanService.delete(id);
+  }
+
+  @UseGuards(ClientAuthGuard)
+  @Post(':loan_id/upload-rejected-document/:document_type')
+  @UseInterceptors(FileInterceptor('file'))
+  async uploadRejectedDocument(
+    @Param('loan_id', ParseUUIDPipe) loanId: string,
+    @Param('document_type') documentType: 'fisrt_flyer' | 'second_flyer' | 'third_flyer' | 'labor_card',
+    @UploadedFile() file: Express.Multer.File,
+    @CurrentUser() user: any
+  ) {
+    // Verificar que el documentType es válido
+    if (!['fisrt_flyer', 'second_flyer', 'third_flyer', 'labor_card'].includes(documentType)) {
+      throw new BadRequestException('Tipo de documento no válido');
+    }
+
+    // Verificar que hay un archivo
+    if (!file) {
+      throw new BadRequestException('No se proporcionó ningún archivo');
+    }
+
+    // Verificar que el préstamo pertenece al usuario autenticado
+    try {
+      const loan = await this.loanService.get(loanId, user.id);
+
+      if (user.type === 'client' && loan.userId !== user.id) {
+        throw new ForbiddenException('No autorizado para actualizar este préstamo');
+      }
+
+      // Llamar al servicio para subir el documento rechazado
+      return this.loanService.uploadRejectedDocument(loanId, documentType, file);
+    } catch (error) {
+      this.logger.error(`Error al subir documento rechazado: ${error.message}`, error.stack);
+      if (error instanceof NotFoundException || error instanceof BadRequestException || error instanceof ForbiddenException) {
+        throw error;
+      }
+      throw new BadRequestException(`Error al subir el documento: ${error.message}`);
+    }
   }
 }
