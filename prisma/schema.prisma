@@ -186,7 +186,6 @@ enum companiesUser {
     pichichi_sas
     pichichi_coorte
     valor_agregado
-    sin_asignar
     no
 }
 

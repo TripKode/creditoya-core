@@ -748,16 +748,8 @@ export class LoanService {
     page: number = 1,
     pageSize: number = 10,
     searchQuery?: string,
-    companyFilter?: string
   ): Promise<{ data: LoanApplication[]; total: number }> {
-    // Iniciar la corrección de valores inválidos en segundo plano
-    this.fixInvalidNoValueInCompany().catch(err =>
-      this.logger.error('Error al corregir valores de compañía:', err)
-    );
-
-    const options: any = {};
-
-    return this.getLoans(StatusLoan.Aprobado, page, pageSize, searchQuery, options);
+    return this.getLoans(StatusLoan.Aprobado, page, pageSize, searchQuery);
   }
 
   async getLoansWithDefinedNewCantity(
@@ -1403,7 +1395,7 @@ export class LoanService {
         // Si no encontramos usuarios por número de documento o no es un número,
         // realizamos búsqueda por nombre
         if (userIdsToInclude.length === 0 && cleanSearchQuery.length >= 2) {
-          // Usar nuestra nueva función especializada de búsqueda por nombre
+          // Usar nuestra función especializada de búsqueda por nombre
           userIdsToInclude = await this.searchLoansByUserName(cleanSearchQuery, status);
         }
 
@@ -1411,7 +1403,6 @@ export class LoanService {
         const searchConditions: Prisma.LoanApplicationWhereInput[] = [];
 
         // Incluir búsqueda por ID de préstamo solo si parece un ID
-        // Los IDs suelen incluir guiones o tener un formato específico
         const isPossibleId = cleanSearchQuery.includes('-') || /^[a-f0-9-]+$/i.test(cleanSearchQuery);
 
         if (isPossibleId) {
@@ -1443,196 +1434,59 @@ export class LoanService {
         where
       });
 
-      // NUEVO: Obtener los IDs de los préstamos primero
-      const loanIds = await this.prisma.loanApplication.findMany({
+      // Obtener los préstamos con la información completa del usuario (excepto password)
+      const loans = await this.prisma.loanApplication.findMany({
         where,
-        select: { id: true },
+        include: {
+          user: {
+            select: {
+              id: true,
+              email: true,
+              names: true,
+              firstLastName: true,
+              secondLastName: true,
+              phone: true,
+              phone_whatsapp: true,
+              residence_phone_number: true,
+              birth_day: true,
+              genre: true,
+              residence_address: true,
+              city: true,
+              currentCompanie: true,
+              avatar: true,
+              isBan: true,
+              createdAt: true,
+              updatedAt: true,
+              // Excluimos password por seguridad
+            }
+          },
+          // Incluir información relacionada que pueda ser útil
+          GeneratedDocuments: true,
+          EventLoanApplication: true
+        },
         orderBy: { created_at: 'desc' },
         skip,
         take: pageSize
       });
 
-      // Array para almacenar los resultados
-      const loansWithValidUsers: LoanApplication[] = [];
+      // Asegurar que los datos estén correctamente formateados
+      const formattedLoans = loans.map(loan => {
+        // Asegurar que userId está correctamente expuesto
+        return {
+          ...loan,
+          userId: loan.userId // Asegurar que esté explícitamente incluido aunque ya lo trae Prisma
+        };
+      });
 
-      // Procesar cada préstamo individualmente para evitar errores en lote
-      for (const loanId of loanIds) {
-        try {
-          // Obtener préstamo con información básica del usuario
-          const loan = await this.prisma.loanApplication.findUnique({
-            where: { id: loanId.id },
-            include: {
-              user: {
-                select: {
-                  id: true,
-                  email: true,
-                  names: true,
-                  firstLastName: true,
-                  secondLastName: true,
-                  phone: true,
-                  phone_whatsapp: true,
-                  residence_phone_number: true,
-                  birth_day: true,
-                  genre: true,
-                  residence_address: true,
-                  city: true,
-                  // Excluimos currentCompanie para evitar problemas con el enum
-                }
-              }
-            }
-          });
-
-          if (loan && loan.user) {
-            // Obtener la información de currentCompanie de forma segura usando findFirstOrThrow
-            try {
-              // Primero intentamos obtener el valor de manera segura
-              let userCompanyValue = 'sin_asignar'; // Valor por defecto
-
-              try {
-                // Intentar usar Prisma's client.$runCommandRaw si está disponible
-                if (typeof this.prisma.$runCommandRaw === 'function') {
-                  const result = await this.prisma.$runCommandRaw({
-                    find: "User",
-                    filter: { _id: loan.userId },
-                    projection: { currentCompanie: 1 },
-                    limit: 1
-                  }) as MongoCommandResult; // Add type assertion here
-
-                  if (result &&
-                    result.cursor &&
-                    Array.isArray(result.cursor.firstBatch) &&
-                    result.cursor.firstBatch.length > 0) {
-                    userCompanyValue = this.getSafeCompanyValue(
-                      result.cursor.firstBatch[0].currentCompanie
-                    );
-                  }
-                } else {
-                  // Plan B: Usar findFirst con try/catch para manejar posibles errores
-                  const userCompanyInfo = await this.prisma.user.findFirst({
-                    where: { id: loan.userId },
-                    select: { currentCompanie: true }
-                  });
-
-                  if (userCompanyInfo) {
-                    userCompanyValue = userCompanyInfo.currentCompanie.toString();
-                  }
-                }
-              } catch (innerError) {
-                this.logger.warn(`No se pudo obtener la compañía del usuario ${loan.userId} usando métodos standard: ${innerError.message}`);
-
-                // Plan C: Alternativa extrema - usar un valor predeterminado
-                userCompanyValue = 'sin_asignar';
-              }
-
-              // Asignar el valor recuperado (o por defecto)
-              (loan.user as any).currentCompanie = this.getSafeCompanyValue(userCompanyValue);
-            } catch (companyError) {
-              this.logger.warn(`Error al obtener compañía del usuario ${loan.userId}: ${companyError.message}`);
-              // Establecer un valor por defecto seguro
-              (loan.user as any).currentCompanie = 'sin_asignar';
-            }
-
-            // Obtener documentos del usuario
-            try {
-              const userWithDocs = await this.prisma.user.findUnique({
-                where: { id: loan.userId },
-                select: { Document: true }
-              });
-
-              if (userWithDocs && userWithDocs.Document) {
-                (loan.user as any).Document = userWithDocs.Document;
-              }
-            } catch (docError) {
-              this.logger.warn(`Error al obtener documentos del usuario ${loan.userId}: ${docError.message}`);
-            }
-
-            loansWithValidUsers.push(loan);
-          }
-        } catch (loanError) {
-          this.logger.error(`Error al procesar préstamo ${loanId.id}: ${loanError.message}`);
-          // Continuamos con el siguiente préstamo
-        }
-      }
-
-      this.logger.log(`Se procesaron ${loansWithValidUsers.length} de ${loanIds.length} préstamos con éxito`);
-      return { data: loansWithValidUsers, total: totalLoans };
+      return {
+        data: formattedLoans,
+        total: totalLoans
+      };
     } catch (error) {
       this.logger.error('Error al obtener préstamos:', error);
       throw new BadRequestException(`Error al obtener las solicitudes de préstamo: ${error.message}`);
     }
   }
-
-  // Método para obtener un valor seguro de compañía
-  private getSafeCompanyValue(value: any): string {
-    const validValues = [
-      'incauca_sas',
-      'incauca_cosecha',
-      'providencia_sas',
-      'providencia_cosecha',
-      'con_alta',
-      'pichichi_sas',
-      'pichichi_coorte',
-      'valor_agregado',
-      'sin_asignar'
-    ];
-
-    if (typeof value === 'string' && validValues.includes(value)) {
-      return value;
-    }
-
-    return 'sin_asignar'; // Valor por defecto seguro
-  }
-
-  /**
-   * Método específico para corregir usuarios con valor 'no' en currentCompanie
-   * Usa el cliente de MongoDB a través de Prisma
-   */
-  private async fixInvalidNoValueInCompany(): Promise<void> {
-    try {
-      this.logger.log('Iniciando corrección de valores "no" en currentCompanie...');
-
-      // Primero, encontrar usuarios con currentCompanie = "no" usando Prisma
-      const rawUsers = await this.prisma.user.findMany({
-        where: {
-          // @ts-ignore - Necesario porque "no" no está en el enum companiesUser
-          currentCompanie: companiesUser
-        },
-        select: {
-          id: true
-        }
-      });
-
-      this.logger.log(`Se encontraron ${rawUsers.length} usuarios con currentCompanie = "no"`);
-
-      // Actualizar cada usuario encontrado usando Prisma.$executeRaw para bypass validation
-      let updatedCount = 0;
-
-      for (const user of rawUsers) {
-        try {
-          // Usar executeRaw para actualizar directamente en la base de datos
-          await this.prisma.$runCommandRaw({
-            update: "User",
-            updates: [
-              {
-                q: { _id: { $eq: user.id } },
-                u: { $set: { currentCompanie: "sin_asignar" } }
-              }
-            ]
-          });
-
-          updatedCount++;
-          this.logger.log(`Usuario ${user.id} actualizado de "no" a "sin_asignar"`);
-        } catch (updateError) {
-          this.logger.error(`Error al actualizar usuario ${user.id}: ${updateError.message}`);
-        }
-      }
-
-      this.logger.log(`Proceso completado. Se actualizaron ${updatedCount} de ${rawUsers.length} usuarios.`);
-    } catch (error) {
-      this.logger.error(`Error al corregir valores "no" en currentCompanie: ${error.message}`);
-    }
-  }
-
   /**
    * Función auxiliar para búsqueda avanzada de préstamos por nombre del usuario
    * Esta función procesa el texto de búsqueda y encuentra usuarios que coincidan
