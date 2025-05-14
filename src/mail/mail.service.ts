@@ -329,6 +329,39 @@ export class MailService {
     }
   }
 
+  /**
+   * Envía un correo electrónico con el magic link para recuperar contraseña
+   * @param to Email del destinatario
+   * @param magicLink URL del magic link
+   * @param userType Tipo de usuario (cliente o intranet)
+   */
+  async sendPasswordResetEmail(to: string, magicLink: string, userType: string): Promise<void> {
+    const appName = userType === 'client' ? 'CreditoYa' : 'CreditoYa Intranet';
+
+    await this.transporter.sendMail({
+      from: await this.getEmailSender(),
+      to,
+      subject: 'Recuperación de contraseña',
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <h2>Recuperación de contraseña</h2>
+          <p>Hemos recibido una solicitud para restablecer la contraseña de tu cuenta en ${appName}.</p>
+          <p>Para continuar con el proceso, haz clic en el siguiente enlace:</p>
+          <p style="text-align: center;">
+            <a href="${magicLink}" 
+               style="background-color: #4CAF50; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;"
+            >
+              Restablecer contraseña
+            </a>
+          </p>
+          <p><strong>Importante:</strong> Este enlace será válido por solo 10 minutos.</p>
+          <p>Si no solicitaste este cambio, puedes ignorar este correo. Tu cuenta está segura.</p>
+          <p>Saludos,<br>El equipo de ${appName}</p>
+        </div>
+      `,
+    });
+  }
+
   async sendApprovalEmail(data: {
     loanId: string;
     mail: string

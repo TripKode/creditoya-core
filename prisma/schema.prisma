@@ -58,6 +58,16 @@ model UsersIntranet {
     created_at DateTime @default(now())
 }
 
+model PasswordReset {
+    id        String     @id @default(uuid()) @map("_id")
+    email     String
+    token     String     @unique
+    userType  TypesUsers @default(client)
+    expiresAt DateTime
+    isUsed    Boolean    @default(false)
+    createdAt DateTime   @default(now())
+}
+
 model PreLoanApplication {
     id                   String    @id @default(uuid()) @map("_id")
     userId               String
@@ -217,4 +227,9 @@ enum statusSession {
 enum TypeEventLoan {
     CHANGE_CANTITY
     DOCS_REJECT
+}
+
+enum TypesUsers {
+    client
+    intranet
 }

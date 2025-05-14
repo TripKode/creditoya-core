@@ -13,6 +13,7 @@ import { AuthModule } from './auth/auth.module';
 import { BackupModule } from './backup/backup.module';
 import { RedisModule } from './redis/redis.module';
 import { PdfsModule } from './pdfs/pdfs.module';
+import { PasswordResetModule } from './password-reset/password-reset.module';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { PdfsModule } from './pdfs/pdfs.module';
     BackupModule,
     RedisModule,
     PdfsModule,
+    PasswordResetModule,
   ],
   controllers: [AppController],
   providers: [AppService],
