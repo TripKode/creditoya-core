@@ -10,7 +10,7 @@ import { GenerateMailSignup } from 'templatesEmails/generates/GenerateWelcome';
 import { generateMailTokenValidateLoan } from 'templatesEmails/generates/GenerateLoanTokenValidate';
 import { generateMailCreateLoan } from 'templatesEmails/generates/GenerateCreateLoan';
 import * as nodemailer from 'nodemailer';
-import * as axios from 'axios';
+import axios from 'axios';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as util from 'util';
@@ -68,7 +68,7 @@ export class MailService {
 
     const downloadPromises = urls.map(async (url, index) => {
       try {
-        const response = await axios.default.get(url, {
+        const response = await axios.get(url, {
           responseType: 'stream',
         });
 
