@@ -62,6 +62,7 @@ model PreLoanApplication {
     id                   String    @id @default(uuid()) @map("_id")
     userId               String
     user                 User      @relation(fields: [userId], references: [id])
+    phone                String?
     bankNumberAccount    String
     entity               String
     labor_card           String?
@@ -98,6 +99,7 @@ model LoanApplication {
     upid_third_flyer     String?
     reasonReject         String?
     reasonChangeCantity  String?
+    phone                String?
     cantity              String
     newCantity           String?
     newCantityOpt        Boolean?

@@ -5,7 +5,6 @@ export class CreateClientDto {
   firstLastName: string;
   secondLastName: string;
   currentCompanie: string
-  phone?: string;
 };
 
 export class SignInDto {

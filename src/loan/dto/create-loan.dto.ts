@@ -1,5 +1,6 @@
 export class CreateLoanApplicationDto {
   userId: string;
+  phone: string
   entity: string;
   bankNumberAccount: string;
   cantity: string;
@@ -22,6 +23,7 @@ export class CreateLoanApplicationDto {
 export class PreCreateLoanApplicationDto {
   id?: string
   userId: string;
+  phone: string;
   entity: string;
   bankNumberAccount: string;
   cantity: string;

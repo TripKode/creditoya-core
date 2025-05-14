@@ -1,18 +1,25 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
-import * as nodemailer from 'nodemailer';
-import { Readable } from 'stream';
 import { MJMLtoHTML } from '../../handlers/mjmlToHtml';
 import { ActiveAccountMail } from '../../templatesEmails/generates/GenerateActiveAccountMail';
 import { ChangeCantityMail } from '../../templatesEmails/generates/GenerateChangeCantityMail';
 import { generateMailChangeStatus } from '../../templatesEmails/generates/GenerateChangeStatusMail';
 import { generateMailRejectDocument } from '../../templatesEmails/generates/GenerateRejectDocument';
 import { GenerateMailSignup } from 'templatesEmails/generates/GenerateWelcome';
+import { generateMailTokenValidateLoan } from 'templatesEmails/generates/GenerateLoanTokenValidate';
+import { generateMailCreateLoan } from 'templatesEmails/generates/GenerateCreateLoan';
+import * as nodemailer from 'nodemailer';
+import * as axios from 'axios';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as util from 'util';
+import * as stream from 'stream';
 
 @Injectable()
 export class MailService {
   private transporter: nodemailer.Transporter;
+  private pipeline = util.promisify(stream.pipeline);
 
   constructor(
     private readonly jwtService: JwtService,
@@ -35,22 +42,70 @@ export class MailService {
     });
   }
 
-  verifyToken(token: string): any {
-    try {
-      return this.jwtService.verify(token, {
-        secret: this.configService.get<string>('JWT_SECRET'),
-      });
-    } catch (error) {
-      return null;
-    }
-  }
-
   private async getEmailSender(): Promise<string> {
     const email = this.configService.get<string>('GOOGLE_EMAIL');
     if (!email) {
       throw new Error('Email sender not properly configured');
     }
     return `"Credito Ya" ${email}`;
+  }
+
+  /**
+   * Descarga documentos PDF desde URLs proporcionadas
+   * @param urls Array de URLs de documentos PDF para descargar
+   * @returns Array de objetos con nombre de archivo y ruta del archivo descargado
+   */
+  async downloadPdfDocuments(urls: string[]): Promise<{ filename: string, path: string }[]> {
+    if (!urls || urls.length === 0) {
+      return [];
+    }
+
+    const tempDir = path.join(process.cwd(), 'temp');
+    // Asegurarse de que exista el directorio temporal
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+
+    const downloadPromises = urls.map(async (url, index) => {
+      try {
+        const response = await axios.default.get(url, {
+          responseType: 'stream',
+        });
+
+        // Generar un nombre único para el archivo
+        const filename = `documento_${index + 1}_${Date.now()}.pdf`;
+        const filePath = path.join(tempDir, filename);
+
+        // Guardar el stream a un archivo
+        await this.pipeline(response.data, fs.createWriteStream(filePath));
+
+        return { filename, path: filePath };
+      } catch (error) {
+        console.error(`Error al descargar el documento PDF desde ${url}:`, error);
+        return null;
+      }
+    });
+
+    const results = await Promise.all(downloadPromises);
+    return results.filter(
+      (result): result is { filename: string; path: string } => result !== null
+    ); // Filtrar posibles fallos de descarga
+  }
+
+  /**
+   * Limpia los archivos temporales después de enviar el correo
+   * @param filePaths Array de rutas de archivos a eliminar
+   */
+  async cleanupTempFiles(filePaths: string[]): Promise<void> {
+    filePaths.forEach(filePath => {
+      try {
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+        }
+      } catch (error) {
+        console.error(`Error al eliminar el archivo temporal ${filePath}:`, error);
+      }
+    });
   }
 
   async sendActiveAccountMail(data: {
@@ -77,73 +132,9 @@ export class MailService {
     }
   }
 
-  async sendMailByUser(data: {
-    subject: string;
-    content: string;
-    addressee: string | string[];
-    files?: File[];
-  }): Promise<nodemailer.SentMessageInfo> {
-    try {
-      const attachmentsFiles = data.files
-        ? await Promise.all(
-          data.files.map(async (file: File) => {
-            const filename = `${Date.now()}-${file.name}`;
-
-            // Create a readable stream from file buffer
-            const fileArrayBuffer = await file.arrayBuffer();
-            const fileBuffer = Buffer.from(fileArrayBuffer);
-            const fileStream = new Readable();
-            fileStream.push(fileBuffer);
-            fileStream.push(null);
-
-            return {
-              filename,
-              content: fileStream,
-            };
-          }),
-        )
-        : [];
-
-      const mailData = await this.transporter.sendMail({
-        from: await this.getEmailSender(),
-        to: data.addressee,
-        subject: data.subject,
-        text: data.subject, // Usando el subject como texto por defecto
-        html: data.content,
-        attachments: attachmentsFiles,
-      });
-
-      return mailData;
-    } catch (error) {
-      console.error('Error sending mail with attachments:', error);
-      throw new Error(`Failed to send email: ${error.message}`);
-    }
-  }
-
-  async sendMailByUserImage(data: {
-    addressee: string;
-    content: string;
-    subject: string;
-  }): Promise<nodemailer.SentMessageInfo> {
-    try {
-      const mailData = await this.transporter.sendMail({
-        from: await this.getEmailSender(),
-        to: data.addressee,
-        subject: data.subject,
-        text: data.subject, // Usando el subject como texto por defecto
-        html: data.content,
-      });
-
-      return mailData;
-    } catch (error) {
-      console.error('Error sending image mail:', error);
-      throw new Error(`Failed to send email with image: ${error.message}`);
-    }
-  }
-
   // specify Helpers
 
-  async newClientMail(data: {
+  async sendNewClientMail(data: {
     mail: string,
     completeName: string
   }) {
@@ -159,17 +150,6 @@ export class MailService {
         from: await this.getEmailSender(),
         to: data.mail,
         subject: '¡Bienvenido a Crédito Ya! Estamos felices de tenerte aquí',
-        text: `Hola ${data.completeName},
-
-        ¡Gracias por registrarte en Crédito Ya! Estamos muy contentos de que te unas a nuestra comunidad.
-
-        Desde ahora podrás disfrutar de una experiencia ágil, segura y confiable para gestionar tus créditos y oportunidades financieras.
-
-        Si tienes alguna pregunta o necesitas ayuda, no dudes en escribirnos.
-
-        ¡Bienvenido nuevamente!
-
-        El equipo de Crédito Ya`,
         html,
       })
 
@@ -178,6 +158,81 @@ export class MailService {
       console.error('Error sending welcome email:', error);
       throw new Error(`Failed to send welcome email: ${error.message}`);
     }
+  }
+
+  async sendCreateNewLoan(data: {
+    mail: string,
+    loanId: string,
+    reqCantity: string,
+    documentUrls?: string[] // Nuevo parámetro opcional para URLs de documentos
+  }) {
+    try {
+      if (!data.mail || !data.loanId || !data.reqCantity) {
+        throw new Error('Missing required fields email');
+      }
+
+      const { loanId, reqCantity } = data;
+      const content = generateMailCreateLoan({ loanId, reqCantity });
+      const html = await MJMLtoHTML(content);
+
+      // Preparar las opciones básicas del correo
+      const mailOptions: nodemailer.SendMailOptions = {
+        from: await this.getEmailSender(),
+        to: data.mail,
+        subject: 'Nueva solicitud de préstamo creada',
+        html,
+        attachments: [] // Inicializar el array de adjuntos
+      };
+
+      // Si hay URLs de documentos, descargarlos y añadirlos como adjuntos
+      if (data.documentUrls && data.documentUrls.length > 0) {
+        const downloadedFiles = await this.downloadPdfDocuments(data.documentUrls);
+
+        // Añadir cada archivo descargado como adjunto
+        if (downloadedFiles.length > 0) {
+          mailOptions.attachments = downloadedFiles.map(file => ({
+            filename: file.filename,
+            path: file.path,
+            contentType: 'application/pdf'
+          }));
+        }
+      }
+
+      // Enviar el correo con los adjuntos
+      const mailData = await this.transporter.sendMail(mailOptions);
+
+      // Limpiar archivos temporales si los había
+      if (mailOptions.attachments && mailOptions.attachments.length > 0) {
+        const filePaths = mailOptions.attachments.map(attachment => attachment.path as string);
+        await this.cleanupTempFiles(filePaths);
+      }
+
+      return mailData;
+    } catch (error) {
+      console.error('Error sending new loan email with attachments:', error);
+      throw new Error(`Failed to send new loan email: ${error.message}`);
+    }
+  }
+
+  async sendLoanTokenVerification(data: {
+    token: string
+    mail: string
+  }) {
+    if (!data.mail || !data.token) {
+      throw new Error('Missing required fields email');
+    }
+
+    const content = generateMailTokenValidateLoan({ token: data.token });
+    const html = await MJMLtoHTML(content);
+
+    const mailData = await this.transporter.sendMail({
+      from: await this.getEmailSender(),
+      to: data.mail,
+      subject: 'Código de verificación para tu solicitud de préstamo',
+      html,
+    });
+
+    return mailData;
   }
 
   async sendChangeCantityMail(data: {
@@ -205,7 +260,6 @@ export class MailService {
         from: await this.getEmailSender(),
         to: data.mail,
         subject: 'La cantidad requerida de tu préstamo ha cambiado',
-        text: `La cantidad requerida de tu préstamo #${data.loanId} ha cambiado a ${data.cantity_aproved}`,
         html,
       });
 
@@ -239,7 +293,6 @@ export class MailService {
         from: await this.getEmailSender(),
         to: data.mail,
         subject: 'El estado de tu préstamo ha cambiado',
-        text: `El estado de tu préstamo #${data.loanId} ha cambiado a ${data.newStatus}`,
         html,
       });
 
@@ -266,7 +319,6 @@ export class MailService {
         from: await this.getEmailSender(),
         to: data.mail,
         subject: 'Un documento de tu préstamo ha sido rechazado',
-        text: `Un documento de tu préstamo #${data.loanId} ha sido rechazado`,
         html,
       });
 

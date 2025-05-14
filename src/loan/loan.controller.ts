@@ -53,6 +53,7 @@ export class LoanController {
     @Body() body: {
       signature: string,
       entity: string,
+      phone: string,
       bankNumberAccount: string,
       cantity: string,
       terms_and_conditions: boolean | string,
@@ -79,6 +80,7 @@ export class LoanController {
       labor_card: files.labor_card?.[0] || null,
       signature: body.signature,
       userId,
+      phone: body.phone,
       // You may also need to include these other fields from the DTO
       entity: body.entity, // This should come from request body
       bankNumberAccount: body.bankNumberAccount, // This should come from request body

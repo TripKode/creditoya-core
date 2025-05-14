@@ -200,6 +200,7 @@ export class AuthService {
         avatar: true,
         rol: true,
         isActive: true,
+        phone: true
         // otros campos que quieras incluir pero NO la contraseña
       }
     });

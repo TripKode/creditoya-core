@@ -784,7 +784,6 @@ export class PdfsService {
               firstLastName: true,
               secondLastName: true,
               email: true,
-              phone: true
             }
           }
         }

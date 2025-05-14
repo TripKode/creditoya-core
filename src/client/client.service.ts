@@ -54,7 +54,7 @@ export class ClientService {
     });
 
     try {
-      await this.mail.newClientMail({
+      await this.mail.sendNewClientMail({
         mail: data.email.trim(),
         completeName: `${data.names} ${data.firstLastName} ${data.secondLastName}`
       });

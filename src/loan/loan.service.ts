@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
-import { companiesUser, GeneratedDocuments, LoanApplication, Prisma, StatusLoan } from '@prisma/client';
+import { GeneratedDocuments, LoanApplication, Prisma, StatusLoan } from '@prisma/client';
 import { CreateLoanApplicationDto, PreCreateLoanApplicationDto } from './dto/create-loan.dto';
 import { UpdateLoanApplicationDto } from './dto/update-loan.dto';
 import { ChangeLoanStatusDto, UploadId } from './dto/change-loan-status.dto';
@@ -10,7 +10,6 @@ import { GoogleCloudService } from 'src/gcp/gcp.service';
 import { RandomUpIdsGenerator } from 'handlers/GenerateUpIds';
 import { CloudinaryService } from 'src/cloudinary/cloudinary.service';
 import { ILoanApplication, LoanStatus } from 'types/full';
-import { MongoCommandResult } from 'src/prisma/dto/results';
 
 @Injectable()
 export class LoanService {
@@ -81,6 +80,7 @@ export class LoanService {
             connect: { id: data.userId },
           },
           // Datos principales del préstamo
+          phone: data.phone,
           entity: data.entity,
           bankNumberAccount: data.bankNumberAccount,
           cantity: data.cantity,
@@ -154,11 +154,11 @@ export class LoanService {
         this.logger.error('Error generating PDFs for loan application', pdfError);
       }
 
-      // Enviar correo al usuario con información del PDF
-      await this.mailService.sendMailByUser({
-        subject: 'Solicitud de préstamo creada',
-        content: `Su solicitud de préstamo ha sido creada con éxito. ID: ${newLoan.id}. Los documentos necesarios han sido generados y están disponibles en su cuenta.`,
-        addressee: newLoan.user.email,
+      // Enviar correo al usuario con información del préstamo
+      await this.mailService.sendCreateNewLoan({
+        mail: newLoan.user?.email as string,
+        loanId: newLoan.id,
+        reqCantity: newLoan.cantity
       });
 
       return newLoan as unknown as ILoanApplication; // Conversión de tipo necesaria
@@ -221,6 +221,7 @@ export class LoanService {
       const preCreatedLoan = await this.prisma.preLoanApplication.create({
         data: {
           userId: data.userId as string,
+          phone: data.phone as string,
           entity: data.entity as string,
           bankNumberAccount: data.bankNumberAccount as string,
           cantity: data.cantity as string,
@@ -241,11 +242,10 @@ export class LoanService {
       });
 
       // send email to user with the token
-      await this.mailService.sendMailByUser({
-        subject: 'Solicitud de préstamo pre-creada',
-        content: `Su solicitud de préstamo ha sido pre-creada con éxito. ID: ${preCreatedLoan.id}. El token para verificar su solicitud es: ${token}`,
-        addressee: preCreatedLoan.user.email,
-      });
+      await this.mailService.sendLoanTokenVerification({
+        token,
+        mail: preCreatedLoan.user.email
+      })
 
       // Prepare the result
       const result = {
@@ -303,6 +303,7 @@ export class LoanService {
       // Preparar los datos para crear el préstamo
       const bodyReqLoan: CreateLoanApplicationDto = {
         userId: preLoan.userId,
+        phone: preLoan.phone!,
         entity: preLoan.entity,
         bankNumberAccount: preLoan.bankNumberAccount,
         cantity: preLoan.cantity,
@@ -337,13 +338,6 @@ export class LoanService {
           processedAt: new Date(),
           loanApplicationId: newLoan.id
         },
-      });
-
-      // Enviar correo al usuario con información del préstamo
-      await this.mailService.sendMailByUser({
-        subject: 'Solicitud de préstamo creada',
-        content: `Su solicitud de préstamo ha sido creada con éxito. ID: ${newLoan.id}. Los documentos necesarios han sido generados y están disponibles en su cuenta.`,
-        addressee: newLoan.user?.email as string,
       });
 
       // Return the data that was used to create the loan
@@ -1445,7 +1439,6 @@ export class LoanService {
               names: true,
               firstLastName: true,
               secondLastName: true,
-              phone: true,
               phone_whatsapp: true,
               residence_phone_number: true,
               birth_day: true,
@@ -1487,6 +1480,7 @@ export class LoanService {
       throw new BadRequestException(`Error al obtener las solicitudes de préstamo: ${error.message}`);
     }
   }
+
   /**
    * Función auxiliar para búsqueda avanzada de préstamos por nombre del usuario
    * Esta función procesa el texto de búsqueda y encuentra usuarios que coincidan
