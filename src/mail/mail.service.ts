@@ -15,6 +15,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as util from 'util';
 import * as stream from 'stream';
+import { generateMailPasswordReset } from 'templatesEmails/generates/GenerateRecoveryPass';
+import { generateMailPasswordResetSuccess } from 'templatesEmails/generates/GenerateSuccesChangePass';
+
 
 @Injectable()
 export class MailService {
@@ -335,30 +338,29 @@ export class MailService {
    * @param magicLink URL del magic link
    * @param userType Tipo de usuario (cliente o intranet)
    */
-  async sendPasswordResetEmail(to: string, magicLink: string, userType: string): Promise<void> {
+  async sendPasswordResetEmail({ userType, userId, magicLink, to }: { to: string, magicLink: string, userType: string, userId: string }): Promise<void> {
     const appName = userType === 'client' ? 'CreditoYa' : 'CreditoYa Intranet';
+
+    const content = generateMailPasswordReset({ userId, magicLink })
+    const html = await MJMLtoHTML(content);
 
     await this.transporter.sendMail({
       from: await this.getEmailSender(),
       to,
       subject: 'Recuperación de contraseña',
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <h2>Recuperación de contraseña</h2>
-          <p>Hemos recibido una solicitud para restablecer la contraseña de tu cuenta en ${appName}.</p>
-          <p>Para continuar con el proceso, haz clic en el siguiente enlace:</p>
-          <p style="text-align: center;">
-            <a href="${magicLink}" 
-               style="background-color: #4CAF50; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;"
-            >
-              Restablecer contraseña
-            </a>
-          </p>
-          <p><strong>Importante:</strong> Este enlace será válido por solo 10 minutos.</p>
-          <p>Si no solicitaste este cambio, puedes ignorar este correo. Tu cuenta está segura.</p>
-          <p>Saludos,<br>El equipo de ${appName}</p>
-        </div>
-      `,
+      html,
+    });
+  }
+
+  async SendInfoChangePasswordSuccess({ userId, to } : {userId: string, to: string}) {
+    const content = generateMailPasswordResetSuccess({ userId })
+    const html = await MJMLtoHTML(content);
+
+    await this.transporter.sendMail({
+      from: await this.getEmailSender(),
+      to,
+      subject: 'Se ha restablecido tu contraseña',
+      html,
     });
   }
 

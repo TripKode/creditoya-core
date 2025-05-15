@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException, UnauthorizedException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, UnauthorizedException, InternalServerErrorException, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
@@ -9,6 +9,8 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 
 @Injectable()
 export class PasswordResetService {
+  private readonly logger = new Logger(PasswordResetService.name);
+
   constructor(
     private prisma: PrismaService,
     private configService: ConfigService,
@@ -19,44 +21,62 @@ export class PasswordResetService {
    * Genera un magic link para recuperación de contraseña
    * @param email Email del usuario
    * @param userType Tipo de usuario ("client" o "intranet")
-   * @returns Objeto con la URL del magic link
+   * @returns Booleano indicando si el proceso fue exitoso
    */
-  async generateMagicLink(email: string, userType: 'client' | 'intranet'): Promise<{ magicLink: string }> {
-    // Verificar si el usuario existe
-    const user = userType === 'client'
-      ? await this.prisma.user.findUnique({ where: { email } })
-      : await this.prisma.usersIntranet.findUnique({ where: { email } });
+  async generateMagicLink(email: string, userType: 'client' | 'intranet'): Promise<boolean> {
+    try {
+      // Buscar usuario según tipo mediante operación condicional optimizada
+      const userModel = userType === 'client' ? this.prisma.user : this.prisma.usersIntranet;
+      const user = await (userModel as typeof this.prisma.user).findUnique({ where: { email } });
 
-    if (!user) {
-      throw new NotFoundException('Usuario no encontrado');
-    }
+      if (!user) {
+        throw new NotFoundException('Usuario no encontrado');
+      }
 
-    // Generar un token único
-    const resetToken = uuidv4();
+      // Generar token y datos para la creación en un solo paso
+      const resetToken = uuidv4();
+      const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutos en milisegundos
 
-    // Calcular fecha de expiración (10 minutos)
-    const expiresAt = new Date();
-    expiresAt.setMinutes(expiresAt.getMinutes() + 10);
+      // Transacción para garantizar consistencia en BD
+      await this.prisma.$transaction([
+        // Invalidar tokens anteriores para este email/tipo
+        this.prisma.passwordReset.updateMany({
+          where: { email, userType, isUsed: false },
+          data: { isUsed: true }
+        }),
+        // Crear nuevo token
+        this.prisma.passwordReset.create({
+          data: {
+            email,
+            token: resetToken,
+            userType,
+            expiresAt,
+            isUsed: false,
+          },
+        })
+      ]);
 
-    // Guardar el token en la base de datos
-    await this.prisma.passwordReset.create({
-      data: {
-        email,
-        token: resetToken,
+      // Construir magic link
+      const baseUrl = this.configService.get('FRONTEND_URL');
+      const magicLink = `${baseUrl}/recuperacion?token=${resetToken}&type=${userType}`;
+
+      // Enviar correo con el magic link
+      await this.emailService.sendPasswordResetEmail({
+        to: email,
+        magicLink,
         userType,
-        expiresAt,
-        isUsed: false,
-      },
-    });
+        userId: user.id
+      });
 
-    // Construir el magic link
-    const baseUrl = this.configService.get('FRONTEND_URL', 'http://localhost:3000');
-    const magicLink = `${baseUrl}/reset-password?token=${resetToken}&type=${userType}`;
-
-    // Enviar correo con el magic link
-    await this.emailService.sendPasswordResetEmail(email, magicLink, userType);
-
-    return { magicLink };
+      return true;
+    } catch (error) {
+      // Capturar y manejar errores específicos
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      this.logger?.error('Error generando magic link', error);
+      throw new InternalServerErrorException('Error al generar enlace de recuperación');
+    }
   }
 
   /**
@@ -119,10 +139,16 @@ export class PasswordResetService {
     }
 
     // Marcar el token como utilizado
-    await this.prisma.passwordReset.update({
+    const registerToken = await this.prisma.passwordReset.update({
       where: { token },
       data: { isUsed: true },
     });
+
+    const { id, email: tokenEmail } = registerToken;
+    const userId = id;
+    const to = tokenEmail;
+
+    await this.emailService.SendInfoChangePasswordSuccess({ userId, to });
 
     return { message: 'Contraseña restablecida con éxito' };
   }
