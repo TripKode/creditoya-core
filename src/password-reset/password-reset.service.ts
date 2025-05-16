@@ -35,7 +35,7 @@ export class PasswordResetService {
 
       // Generar token y datos para la creación en un solo paso
       const resetToken = uuidv4();
-      const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutos en milisegundos
+      const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
       // Transacción para garantizar consistencia en BD
       await this.prisma.$transaction([
@@ -57,14 +57,13 @@ export class PasswordResetService {
       ]);
 
       // Construir magic link
-      const baseUrl = this.configService.get('FRONTEND_URL');
+      const baseUrl = process.env.FRONTEND_URL!;
       const magicLink = `${baseUrl}/recuperacion?token=${resetToken}&type=${userType}`;
 
       // Enviar correo con el magic link
       await this.emailService.sendPasswordResetEmail({
         to: email,
         magicLink,
-        userType,
         userId: user.id
       });
 
