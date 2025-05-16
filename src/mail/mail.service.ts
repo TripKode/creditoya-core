@@ -531,22 +531,20 @@ export class MailService {
     }
   }
 
-  // Métodos pendientes de implementar
+  async sendApprovalEmail(data: {
+    loanId: string;
+    mail: string
+  }): Promise<void> {
+    // TODO: Implementar
+  }
 
-  // async sendApprovalEmail(data: {
-  //   loanId: string;
-  //   mail: string
-  // }): Promise<void> {
-  //   // TODO: Implementar
-  // }
-
-  // async sendRejectionEmail(data: {
-  //   loanId: string;
-  //   reason: string;
-  //   mail: string
-  // }): Promise<void> {
-  //   // TODO: Implementar
-  // }
+  async sendRejectionEmail(data: {
+    loanId: string;
+    reason: string;
+    mail: string
+  }): Promise<void> {
+    // TODO: Implementar
+  }
 
   // Método para uso en pruebas y depuración
   // async getQueueStatus(): Promise<{ queueSize: number, isProcessing: boolean }> {
