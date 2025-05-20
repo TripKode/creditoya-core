@@ -11,7 +11,6 @@ import { CloudinaryModule } from './cloudinary/cloudinary.module';
 import { MailModule } from './mail/mail.module';
 import { AuthModule } from './auth/auth.module';
 import { BackupModule } from './backup/backup.module';
-import { RedisModule } from './redis/redis.module';
 import { PdfsModule } from './pdfs/pdfs.module';
 import { PasswordResetModule } from './password-reset/password-reset.module';
 
@@ -27,7 +26,6 @@ import { PasswordResetModule } from './password-reset/password-reset.module';
     MailModule,
     AuthModule,
     BackupModule,
-    RedisModule,
     PdfsModule,
     PasswordResetModule,
   ],

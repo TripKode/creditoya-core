@@ -9,7 +9,6 @@ import { JwtClientStrategy } from './strategies/jwt-client.strategy';
 import { LocalIntranetStrategy } from './strategies/local-intranet.strategy';
 import { LocalClientStrategy } from './strategies/local-client.strategy';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { RedisModule } from 'src/redis/redis.module';
 import { ClientService } from 'src/client/client.service';
 import { ClientModule } from 'src/client/client.module';
 import { MailModule } from 'src/mail/mail.module';
@@ -31,7 +30,6 @@ import { CloudinaryModule } from 'src/cloudinary/cloudinary.module';
     ConfigModule.forRoot({
       isGlobal: true,
     }),
-    RedisModule,
     ClientModule,
     MailModule,
     GoogleCloudModule,
