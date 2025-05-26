@@ -3,10 +3,9 @@ import { BackupService } from './backup.service';
 import { IntranetAuthGuard } from 'src/auth/guards/intranet-auth.guard';
 import { RolesGuard } from 'src/auth/guards/roles.guard';
 import { Roles } from 'src/auth/decorators/roles.decorator';
+import { CombinedAuthGuard } from 'src/auth/guards/combined-auth.guard';
 
 @Controller('admin/database')
-@UseGuards(IntranetAuthGuard, RolesGuard)
-@Roles('admin') // Solo administradores
 export class BackupController {
   private readonly logger = new Logger(BackupController.name);
 
