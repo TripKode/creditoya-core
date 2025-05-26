@@ -85,7 +85,7 @@ export class ClientController {
   }
 
   // El cliente solo puede actualizar su propio perfil
-  @UseGuards(ClientAuthGuard)
+  @UseGuards(CombinedAuthGuard)
   @Put(':id')
   async update(
     @Param('id') id: string,

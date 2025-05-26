@@ -250,9 +250,55 @@ export class ClientService {
 
   async update(
     id: string,
-    data: Omit<User, 'password'>,
+    data: any, // Usar any temporalmente para manejar datos con relaciones
   ): Promise<User> {
-    return this.prisma.user.update({ where: { id }, data });
+    // Excluir campos de relación y otros campos que no se pueden actualizar directamente
+    const {
+      Document,
+      LoanApplication,
+      PreLoanApplication,
+      createdAt,
+      updatedAt,
+      id: userId,
+      password, // Excluir password para evitar actualizaciones accidentales
+      ...updateData
+    } = data;
+
+    // Validar que solo se actualicen campos permitidos del User
+    const allowedFields = [
+      'email', 'names', 'firstLastName', 'secondLastName', 'currentCompanie',
+      'avatar', 'phone', 'residence_phone_number', 'phone_whatsapp', 'birth_day',
+      'genre', 'residence_address', 'city', 'isBan'
+    ];
+
+    // Filtrar solo los campos permitidos
+    const filteredData: any = {};
+    for (const [key, value] of Object.entries(updateData)) {
+      if (allowedFields.includes(key)) {
+        filteredData[key] = value;
+      }
+    }
+
+    // Convertir birth_day a Date si es string
+    if (filteredData.birth_day && typeof filteredData.birth_day === 'string') {
+      filteredData.birth_day = new Date(filteredData.birth_day);
+    }
+
+    return this.prisma.user.update({
+      where: { id },
+      data: filteredData,
+      // Incluir las relaciones si necesitas devolverlas en la respuesta
+      include: {
+        Document: true,
+        LoanApplication: {
+          include: {
+            GeneratedDocuments: true,
+            EventLoanApplication: true,
+          },
+        },
+        PreLoanApplication: true,
+      },
+    });
   }
 
   async updatePassword(id: string, password: string): Promise<User> {
@@ -441,43 +487,43 @@ export class ClientService {
   async updateImageWithCC(userId: string, imageWithCC: Express.Multer.File): Promise<Document | null> {
     try {
       this.logger.log(`Iniciando actualización de selfie para usuario ${userId}`);
-  
+
       // Validación detallada del archivo
       if (!imageWithCC) {
         this.logger.error('La imagen es nula');
         throw new Error('No se recibió ninguna imagen');
       }
-  
+
       if (!imageWithCC.buffer || imageWithCC.buffer.length === 0) {
         this.logger.error(`La imagen está vacía o corrupta: tamaño=${imageWithCC.size}, mimetype=${imageWithCC.mimetype}`);
         throw new Error('La imagen está vacía o corrupta');
       }
-  
+
       // Buscar el documento del usuario
       const document = await this.prisma.document.findFirst({
         where: { userId },
       });
-  
+
       if (!document) {
         this.logger.warn(`No se encontró documento para el usuario ${userId}`);
         throw new Error('No se encontró documento para este usuario');
       }
-  
+
       this.logger.log('Documento encontrado, procediendo a convertir imagen');
-  
+
       // Procesamiento de imagen optimizado
       let imageBase64;
       try {
         // Convertir el archivo a base64
         imageBase64 = await this.FileToString(imageWithCC);
-  
+
         // Validación del formato base64
         if (!imageBase64 || !imageBase64.startsWith('data:image/')) {
           throw new Error('Error al convertir imagen a formato válido');
         }
-  
+
         this.logger.log('Imagen convertida correctamente a base64');
-        
+
         // Log parcial del string base64 para debugging (solo los primeros 100 caracteres)
         const base64Preview = imageBase64.substring(0, 100) + '...';
         this.logger.log(`Base64 preview: ${base64Preview}`);
@@ -485,60 +531,60 @@ export class ClientService {
         this.logger.error('Error al convertir imagen:', conversionError);
         throw new Error('Error al procesar la imagen. El formato no es compatible.');
       }
-  
+
       // Implementar reintentos para la subida a Cloudinary
       let uploadAttempt = 0;
       const MAX_ATTEMPTS = 3;
       let urlImage: string | null = null;
-  
+
       const folder = 'images_with_cc';
       const publicId = `selfie-${userId}-${Date.now()}`; // Añadir timestamp para evitar problemas de caché
-  
+
       this.logger.log('Configuración para subida a Cloudinary:', {
         folder,
         publicId
       });
-  
+
       while (uploadAttempt < MAX_ATTEMPTS && !urlImage) {
         uploadAttempt++;
         this.logger.log(`Intento de subida a Cloudinary #${uploadAttempt}`);
-  
+
         try {
           // Subir imagen a Cloudinary con más información de depuración
           this.logger.log(`Iniciando subida a Cloudinary: intento=${uploadAttempt}, tamaño=${imageBase64.length}`);
-          
+
           urlImage = await this.cloudinary.uploadImage(imageBase64, folder, publicId);
-  
+
           if (!urlImage) {
             throw new Error('URL de imagen vacía devuelta por Cloudinary');
           }
-  
+
           this.logger.log(`Imagen subida correctamente a Cloudinary: ${urlImage.substring(0, 60)}...`);
         } catch (uploadError) {
           this.logger.error(`Error en intento ${uploadAttempt} de subida a Cloudinary: ${uploadError.message}`);
-  
+
           if (uploadAttempt === MAX_ATTEMPTS) {
             throw new Error(`Error al subir imagen después de ${MAX_ATTEMPTS} intentos: ${uploadError.message}`);
           }
-  
+
           // Esperar un poco antes del siguiente intento (con backoff exponencial)
           const waitTime = 1000 * Math.pow(2, uploadAttempt - 1);
           this.logger.log(`Esperando ${waitTime}ms antes del siguiente intento`);
           await new Promise(resolve => setTimeout(resolve, waitTime));
         }
       }
-  
+
       // Actualizar el documento en la base de datos
       try {
         this.logger.log(`Actualizando documento en base de datos: documentId=${document.id}`);
-        
+
         const updatedDocument = await this.prisma.document.update({
           where: { id: document.id },
           data: { imageWithCC: urlImage ?? 'No definido' },
         });
-  
+
         this.logger.log('Documento actualizado correctamente con la nueva selfie');
-  
+
         return updatedDocument;
       } catch (dbError) {
         this.logger.error('Error actualizando el documento en la base de datos:', dbError);
