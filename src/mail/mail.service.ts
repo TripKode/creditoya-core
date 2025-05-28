@@ -151,7 +151,31 @@ export class MailService {
   }
 
   private async getEmailSender(): Promise<string> {
-    const senderEmail = this.configService.get<string>('SENDER_EMAIL') || 'noreply@creditoya.com';
+    // Email configurado desde variables de entorno
+    const senderEmail = this.configService.get<string>('SENDER_EMAIL');
+
+    // Si no está configurado, usar default con el dominio verificado
+    if (!senderEmail) {
+      this.logger.warn('SENDER_EMAIL not configured, using default');
+      return 'noreply@creditoya.space';
+    }
+
+    // Validar que el email tenga el formato correcto
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(senderEmail)) {
+      this.logger.error(`Invalid SENDER_EMAIL format: ${senderEmail}`);
+      throw new Error('Invalid SENDER_EMAIL configuration');
+    }
+
+    // Validar que use el dominio verificado
+    const domain = senderEmail.split('@')[1];
+    const allowedDomains = ['creditoya.space'];
+
+    if (!allowedDomains.includes(domain)) {
+      this.logger.error(`Email domain not verified: ${domain}`);
+      throw new Error(`Email domain '${domain}' is not verified with Resend`);
+    }
+
     return senderEmail;
   }
 
