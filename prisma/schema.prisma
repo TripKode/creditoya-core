@@ -29,6 +29,18 @@ model User {
     updatedAt              DateTime             @updatedAt
     LoanApplication        LoanApplication[]
     PreLoanApplication     PreLoanApplication[]
+    EventUserUX            EventUserUX[]
+}
+
+model EventUserUX {
+    id               String   @id @default(uuid()) @map("_id")
+    userId           String
+    user             User     @relation(fields: [userId], references: [id])
+    isPerfilComplete Boolean  @default(false)
+    isViewGuide      Boolean  @default(false)
+    counterGuide     Int      @default(0)
+    createdAt        DateTime @default(now())
+    updatedAt        DateTime @updatedAt
 }
 
 model Document {
