@@ -7,17 +7,11 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   app.use(responseTime());
   app.enableCors({
-    // origin: [
-    //   'https://www.creditoya.space',
-    //   'https://intranet-creditoya.vercel.app',
-    //   // Para desarrollo local (opcional)
-    //   'http://localhost:3001',
-    //   'http://localhost:3002'
-    // ],
+    origin: true,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'Cookie'],
-  });
+  })
   app.use(cookieParser());
   // await app.listen(3000);
   const port = process.env.PORT || 8080;
