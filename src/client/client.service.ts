@@ -248,57 +248,69 @@ export class ClientService {
     }
   }
 
-  async update(
-    id: string,
-    data: any, // Usar any temporalmente para manejar datos con relaciones
-  ): Promise<User> {
-    // Excluir campos de relación y otros campos que no se pueden actualizar directamente
-    const {
-      Document,
-      LoanApplication,
-      PreLoanApplication,
-      createdAt,
-      updatedAt,
-      id: userId,
-      password, // Excluir password para evitar actualizaciones accidentales
-      ...updateData
-    } = data;
+  async update(id: string, data: any): Promise<User> {
+    console.log("Datos recibidos en update:", JSON.stringify(data, null, 2));
 
-    // Validar que solo se actualicen campos permitidos del User
+    // Filtrar campos principales y relaciones
     const allowedFields = [
       'email', 'names', 'firstLastName', 'secondLastName', 'currentCompanie',
       'avatar', 'phone', 'residence_phone_number', 'phone_whatsapp', 'birth_day',
-      'genre', 'residence_address', 'city', 'isBan'
+      'genre', 'residence_address', 'city', 'isBan', 'Document'
     ];
 
-    // Filtrar solo los campos permitidos
     const filteredData: any = {};
-    for (const [key, value] of Object.entries(updateData)) {
+
+    // Filtrar campos permitidos incluyendo Document
+    for (const [key, value] of Object.entries(data)) {
       if (allowedFields.includes(key)) {
         filteredData[key] = value;
       }
     }
 
-    // Convertir birth_day a Date si es string
+    console.log("Datos filtrados:", JSON.stringify(filteredData, null, 2));
+
+    // Manejar actualización anidada de Document
+    if (filteredData.Document?.update) {
+      console.log("Procesando actualización de Document:", JSON.stringify(filteredData.Document, null, 2));
+
+      // Verificar que existe el documento
+      const documentExists = await this.prisma.document.findUnique({
+        where: { id: filteredData.Document.update.where.id }
+      });
+
+      if (!documentExists) {
+        throw new Error(`Documento con ID ${filteredData.Document.update.where.id} no encontrado`);
+      }
+
+      // Crear la estructura correcta para Prisma
+      filteredData.Document = {
+        update: {
+          where: { id: filteredData.Document.update.where.id },
+          data: filteredData.Document.update.data
+        }
+      };
+    }
+
+    // Conversión de birth_day
     if (filteredData.birth_day && typeof filteredData.birth_day === 'string') {
       filteredData.birth_day = new Date(filteredData.birth_day);
     }
 
-    return this.prisma.user.update({
-      where: { id },
-      data: filteredData,
-      // Incluir las relaciones si necesitas devolverlas en la respuesta
-      include: {
-        Document: true,
-        LoanApplication: {
-          include: {
-            GeneratedDocuments: true,
-            EventLoanApplication: true,
-          },
-        },
-        PreLoanApplication: true,
-      },
-    });
+    console.log("Datos finales para Prisma:", JSON.stringify(filteredData, null, 2));
+
+    try {
+      const update = await this.prisma.user.update({
+        where: { id },
+        data: filteredData,
+        include: { Document: true }
+      });
+
+      this.logger.log(`Usuario actualizado: ${id}`, filteredData);
+      return update;
+    } catch (prismaError) {
+      console.error("Error de Prisma:", prismaError);
+      throw new Error(`Error al actualizar usuario: ${prismaError.message}`);
+    }
   }
 
   async updatePassword(id: string, password: string): Promise<User> {
