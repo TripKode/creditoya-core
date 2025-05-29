@@ -1,80 +1,110 @@
-import { NestFactory } from '@nestjs/core';
-import { AppModule } from './app.module';
+import { bootstrap } from "handlers/main/boostrap";
 
-async function bootstrap() {
-  try {
-    console.log('🚀 Iniciando aplicación NestJS...');
-    
-    const app = await NestFactory.create(AppModule);
-    
-    console.log('✅ Aplicación NestJS creada exitosamente');
+// Función para obtener la configuración del puerto según entorno
+function getPortConfig() {
+  const nodeEnv = process.env.NODE_ENV || 'development';
+  const isProduction = nodeEnv === 'production';
 
-    // Middleware opcional con manejo de errores
-    try {
-      const responseTime = await import('response-time');
-      app.use(responseTime.default());
-      console.log('✅ Response-time middleware configurado');
-    } catch (error) {
-      console.warn('⚠️ No se pudo cargar response-time middleware:', error.message);
-    }
-
-    // CORS configuration
-    app.enableCors({
-      origin: [
-        'https://www.creditoya.space',
-        'https://intranet-creditoya.vercel.app',
-        // Para desarrollo local (opcional)
-        'http://localhost:3001',
-        'http://localhost:3002'
-      ],
-      credentials: true,
-      methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization', 'Cookie'],
-    });
-    
-    console.log('✅ CORS configurado');
-
-    // Cookie parser opcional
-    try {
-      const cookieParser = await import('cookie-parser');
-      app.use(cookieParser.default());
-      console.log('✅ Cookie parser configurado');
-    } catch (error) {
-      console.warn('⚠️ No se pudo cargar cookie-parser:', error.message);
-    }
-
-    // Configuración del puerto con detección de entorno
-    const isProduction = process.env.NODE_ENV === 'production';
-    const port = process.env.PORT || (isProduction ? 8080 : 3000);
-    const host = isProduction ? '0.0.0.0' : 'localhost';
-    
-    console.log(`🌐 Entorno: ${process.env.NODE_ENV || 'development'}`);
-    console.log(`🌐 Intentando iniciar servidor en ${host}:${port}...`);
-    
-    await app.listen(port, host);
-    
-    console.log(`🎉 Servidor iniciado exitosamente en ${host}:${port}`);
-    console.log(`🔗 Aplicación disponible en http://${host}:${port}`);
-    
-  } catch (error) {
-    console.error('❌ Error durante el inicio de la aplicación:', error);
-    console.error('Stack trace:', error.stack);
-    process.exit(1);
-  }
+  return {
+    port: isProduction ? 8080 : 3000,
+    host: isProduction ? '0.0.0.0' : '127.0.0.1',
+    environment: isProduction ? 'PRODUCTION' : 'DEVELOPMENT',
+    nodeEnv: nodeEnv
+  };
 }
 
-// Manejo de señales para graceful shutdown
-process.on('SIGINT', () => {
-  console.log('📴 Recibida señal SIGINT, cerrando aplicación...');
+// Manejo más agresivo de señales para asegurar que libere el puerto
+process.on('SIGINT', async () => {
+  const config = getPortConfig();
+  console.log('\n📴 === RECIBIDA SEÑAL SIGINT ===');
+  console.log(`🔄 Liberando puerto ${config.port} en ${config.host} y cerrando aplicación...`);
+  console.log(`🌐 Entorno: ${config.environment}`);
   process.exit(0);
 });
 
-process.on('SIGTERM', () => {
-  console.log('📴 Recibida señal SIGTERM, cerrando aplicación...');
+process.on('SIGTERM', async () => {
+  const config = getPortConfig();
+  console.log('\n📴 === RECIBIDA SEÑAL SIGTERM ===');
+  console.log(`🔄 Liberando puerto ${config.port} en ${config.host} y cerrando aplicación...`);
+  console.log(`🌐 Entorno: ${config.environment}`);
   process.exit(0);
 });
+
+process.on('SIGUSR1', async () => {
+  const config = getPortConfig();
+  console.log('\n📴 === RECIBIDA SEÑAL SIGUSR1 ===');
+  console.log(`🔄 Liberando puerto ${config.port} en ${config.host} y cerrando aplicación...`);
+  console.log(`🌐 Entorno: ${config.environment}`);
+  process.exit(0);
+});
+
+process.on('SIGUSR2', async () => {
+  const config = getPortConfig();
+  console.log('\n📴 === RECIBIDA SEÑAL SIGUSR2 ===');
+  console.log(`🔄 Liberando puerto ${config.port} en ${config.host} y cerrando aplicación...`);
+  console.log(`🌐 Entorno: ${config.environment}`);
+  process.exit(0);
+});
+
+// Capturar errores no manejados
+process.on('uncaughtException', (error) => {
+  const config = getPortConfig();
+  console.error('\n💥 === EXCEPCIÓN NO CAPTURADA ===');
+  console.error('Error:', error);
+  console.error('Stack:', error.stack);
+  console.error(`🔧 Entorno: ${config.environment} (${config.host}:${config.port})`);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  const config = getPortConfig();
+  console.error('\n💥 === PROMESA RECHAZADA NO MANEJADA ===');
+  console.error('Razón:', reason);
+  console.error('Promesa:', promise);
+  console.error(`🔧 Entorno: ${config.environment} (${config.host}:${config.port})`);
+  process.exit(1);
+});
+
+// Manejo especial para DOCKER/Kubernetes (common in production)
+process.on('SIGTERM', () => {
+  const config = getPortConfig();
+  console.log('\n🐳 === SEÑAL DE CONTENEDOR DOCKER/K8S ===');
+  console.log(`🔄 Cerrando aplicación ${config.environment} gracefully...`);
+  console.log(`📋 Puerto ${config.port} en ${config.host} será liberado`);
+  process.exit(0);
+});
+
+// Log inicial de configuración
+const config = getPortConfig();
+console.log('\n🚀 === CONFIGURACIÓN INICIAL ===');
+console.log(`🌐 NODE_ENV: ${config.nodeEnv}`);
+console.log(`🎯 Entorno: ${config.environment}`);
+console.log(`🚪 Puerto objetivo: ${config.port}`);
+console.log(`🏠 Host objetivo: ${config.host}`);
+console.log(`🕐 Timestamp: ${new Date().toISOString()}`);
+
+if (config.nodeEnv === 'development') {
+  console.log('🔧 Ejecutando en modo desarrollo local');
+} else if (config.nodeEnv === 'production') {
+  console.log('🚀 Ejecutando en modo producción');
+} else {
+  console.log(`⚠️ NODE_ENV personalizado: ${config.nodeEnv} (usando config de desarrollo)`);
+}
+
+console.log('\n🏁 === INICIANDO BOOTSTRAP ===');
 
 bootstrap().catch((error) => {
-  console.error('💥 Error fatal en bootstrap:', error);
+  const config = getPortConfig();
+  console.error('\n💥 === ERROR FATAL EN BOOTSTRAP ===');
+  console.error('Error:', error);
+  console.error('Stack:', error.stack);
+  console.error(`🔧 Configuración al fallar: ${config.environment} (${config.host}:${config.port})`);
+
+  // Información adicional para debugging
+  console.error('\n🔍 === DEBUG INFO ===');
+  console.error(`📁 CWD: ${process.cwd()}`);
+  console.error(`🔧 Node: ${process.version}`);
+  console.error(`📦 Args: ${process.argv.join(' ')}`);
+
   process.exit(1);
 });
