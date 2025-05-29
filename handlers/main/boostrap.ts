@@ -11,17 +11,37 @@ export async function bootstrap() {
     console.log(`🌐 NODE_ENV: ${process.env.NODE_ENV || 'undefined'}`);
     console.log(`📦 PORT env: ${process.env.PORT || 'undefined'}`);
 
+    // CONFIGURACIÓN DINÁMICA SEGÚN ENTORNO
+    console.log('\n🎯 === CONFIGURACIÓN DE ENTORNO ===');
+    const isProduction = process.env.NODE_ENV === 'production';
+    
+    // Puerto y host según entorno
+    const port = isProduction ? 8080 : 3000;
+    const host = isProduction ? '0.0.0.0' : '127.0.0.1';
+    
+    console.log(`🌐 Entorno detectado: ${isProduction ? 'PRODUCTION' : 'DEVELOPMENT'}`);
+    console.log(`🎯 Puerto configurado: ${port}`);
+    console.log(`🏠 Host configurado: ${host}`);
+
     // VERIFICAR ESTADO DEL PUERTO ANTES DE CREAR LA APP
-    console.log('\n🔍 === VERIFICANDO PUERTO 3000 ===');
-    const isPort3000Occupied = await checkPortStatus(3000, '127.0.0.1');
-    const isPort3000OccupiedOnAllInterfaces = await checkPortStatus(3000, '0.0.0.0');
+    console.log(`\n🔍 === VERIFICANDO PUERTO ${port} ===`);
+    const isPortOccupied = await checkPortStatus(port, host);
+    
+    // En desarrollo, verificar también en otras interfaces comunes
+    let isPortOccupiedElsewhere = false;
+    if (!isProduction) {
+      isPortOccupiedElsewhere = await checkPortStatus(port, '0.0.0.0');
+      console.log(`📊 Puerto ${port} en 0.0.0.0: ${isPortOccupiedElsewhere ? 'OCUPADO' : 'LIBRE'}`);
+    }
 
-    console.log(`📊 Puerto 3000 en 127.0.0.1: ${isPort3000Occupied ? 'OCUPADO' : 'LIBRE'}`);
-    console.log(`📊 Puerto 3000 en 0.0.0.0: ${isPort3000OccupiedOnAllInterfaces ? 'OCUPADO' : 'LIBRE'}`);
+    console.log(`📊 Puerto ${port} en ${host}: ${isPortOccupied ? 'OCUPADO' : 'LIBRE'}`);
 
-    if (isPort3000Occupied || isPort3000OccupiedOnAllInterfaces) {
-      console.log('❌ PUERTO 3000 YA ESTÁ EN USO - ABORTANDO');
-      console.log('💡 Ejecuta: npx kill-port 3000');
+    if (isPortOccupied || isPortOccupiedElsewhere) {
+      console.log(`❌ PUERTO ${port} YA ESTÁ EN USO - ABORTANDO`);
+      console.log(`💡 Para liberar el puerto ${port}, ejecuta:`);
+      console.log(`   🔧 npx kill-port ${port}`);
+      console.log(`   🔧 lsof -ti:${port} | xargs kill -9`);
+      console.log(`   🔧 netstat -tulpn | grep :${port}`);
       process.exit(1);
     }
 
@@ -34,7 +54,6 @@ export async function bootstrap() {
     console.log('\n🔧 === CONFIGURANDO MIDDLEWARES ===');
     try {
       const responseTime = await import('response-time');
-      // Prueba diferentes formas de importar
       const middleware = responseTime.default || responseTime;
       if (typeof middleware === 'function') {
         app.use(middleware());
@@ -46,28 +65,36 @@ export async function bootstrap() {
       console.warn('⚠️ No se pudo cargar response-time middleware:', error.message);
     }
 
-    // CORS configuration
+    // CORS configuration adaptada al entorno
     console.log('\n🌐 === CONFIGURANDO CORS ===');
+    const corsOrigins = isProduction 
+      ? [
+          'https://creditoya.space',
+          'https://intranet-creditoya.vercel.app'
+        ]
+      : [
+          'https://creditoya.space',
+          'https://intranet-creditoya.vercel.app',
+          'http://localhost:3001',
+          'http://localhost:3002',
+          'http://127.0.0.1:3001',
+          'http://127.0.0.1:3002'
+        ];
+
     app.enableCors({
-      origin: [
-        'https://www.creditoya.space',
-        'https://intranet-creditoya.vercel.app',
-        // Para desarrollo local
-        'http://localhost:3001',
-        'http://localhost:3002'
-      ],
+      origin: corsOrigins,
       credentials: true,
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
       allowedHeaders: ['Content-Type', 'Authorization', 'Cookie'],
     });
 
-    console.log('✅ CORS configurado');
+    console.log(`✅ CORS configurado para ${corsOrigins.length} orígenes`);
+    console.log(`📝 Orígenes permitidos: ${corsOrigins.join(', ')}`);
 
     // Cookie parser con manejo de errores corregido
     console.log('\n🍪 === CONFIGURANDO COOKIE PARSER ===');
     try {
       const cookieParser = await import('cookie-parser');
-      // Prueba diferentes formas de importar
       const middleware = cookieParser.default || cookieParser;
       if (typeof middleware === 'function') {
         app.use(middleware());
@@ -79,38 +106,26 @@ export async function bootstrap() {
       console.warn('⚠️ No se pudo cargar cookie-parser:', error.message);
     }
 
-    // Configuración FIJA del puerto 3000
-    console.log('\n🎯 === CONFIGURACIÓN DE PUERTO ===');
-    const isProduction = process.env.NODE_ENV === 'production';
-
-    // SIEMPRE puerto 3000, independientemente del entorno
-    const port = 3000;
-
-    // Host específico según entorno
-    const host = isProduction ? '0.0.0.0' : '127.0.0.1';
-
-    console.log(`🌐 Entorno detectado: ${process.env.NODE_ENV || 'development'}`);
-    console.log(`🎯 Puerto FORZADO: ${port}`);
-    console.log(`🏠 Host seleccionado: ${host}`);
-    console.log(`🚀 Intentando iniciar servidor en ${host}:${port}...`);
+    console.log(`\n🚀 === INICIANDO SERVIDOR EN ${host}:${port} ===`);
 
     // VERIFICAR PUERTO UNA VEZ MÁS ANTES DE INICIAR
     console.log('\n🔍 === VERIFICACIÓN FINAL DEL PUERTO ===');
     const finalPortCheck = await checkPortStatus(port, host);
     if (finalPortCheck) {
-      console.log('❌ PUERTO TODAVÍA OCUPADO - ALGO ESTÁ MAL');
+      console.log(`❌ PUERTO ${port} TODAVÍA OCUPADO EN ${host} - ALGO ESTÁ MAL`);
       throw new Error(`Puerto ${port} en ${host} aún está ocupado`);
     }
 
     console.log(`✅ Puerto ${port} confirmado como libre en ${host}`);
     console.log('🚀 === INICIANDO SERVIDOR ===');
 
-    // Intentar iniciar en puerto 3000
+    // Iniciar servidor
     await app.listen(port, host);
 
     console.log(`\n🎉 === SERVIDOR INICIADO EXITOSAMENTE ===`);
-    console.log(`🔗 Aplicación NestJS disponible en http://localhost:${port}`);
+    console.log(`🔗 Aplicación NestJS disponible en http://${host === '0.0.0.0' ? 'localhost' : host}:${port}`);
     console.log(`🌍 Host: ${host}:${port}`);
+    console.log(`🏷️ Entorno: ${isProduction ? 'PRODUCTION' : 'DEVELOPMENT'}`);
     console.log(`⏰ Iniciado a las: ${new Date().toLocaleString()}`);
 
     // VERIFICACIÓN POST-INICIO
@@ -120,22 +135,27 @@ export async function bootstrap() {
       console.log(`📊 Estado del puerto después del inicio: ${postStartCheck ? 'OCUPADO ✅' : 'LIBRE ❌'}`);
 
       if (!postStartCheck) {
-        console.log('⚠️ ADVERTENCIA: El servidor dice que inició pero el puerto no está ocupado');
+        console.log(`⚠️ ADVERTENCIA: El servidor dice que inició pero el puerto ${port} no está ocupado`);
+      } else {
+        console.log(`🎯 Confirmado: Servidor funcionando correctamente en ${host}:${port}`);
       }
     }, 1000);
 
   } catch (error) {
+    const isProduction = process.env.NODE_ENV === 'production';
+    const port = isProduction ? 8080 : 3000;
+    
     console.error('\n❌ === ERROR DURANTE EL INICIO ===');
     console.error('💥 Error:', error.message);
 
     if (error.code === 'EADDRINUSE') {
-      console.error(`🚫 ¡PUERTO 3000 YA ESTÁ EN USO!`);
-      console.error(`📋 Para liberar el puerto 3000, ejecuta:`);
-      console.error(`   🔧 npx kill-port 3000`);
-      console.error(`   🔧 lsof -ti:3000 | xargs kill -9`);
-      console.error(`   🔧 netstat -tulpn | grep :3000`);
+      console.error(`🚫 ¡PUERTO ${port} YA ESTÁ EN USO!`);
+      console.error(`📋 Para liberar el puerto ${port}, ejecuta:`);
+      console.error(`   🔧 npx kill-port ${port}`);
+      console.error(`   🔧 lsof -ti:${port} | xargs kill -9`);
+      console.error(`   🔧 netstat -tulpn | grep :${port}`);
     } else if (error.code === 'EACCES') {
-      console.error(`🚫 Sin permisos para usar el puerto 3000`);
+      console.error(`🚫 Sin permisos para usar el puerto ${port}`);
       console.error(`💡 Prueba ejecutar como administrador o usa un puerto > 1024`);
     } else {
       console.error(`🤔 Error desconocido: ${error.code || 'Sin código'}`);
