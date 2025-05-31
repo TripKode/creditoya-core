@@ -54,6 +54,8 @@ export class LoanController {
       signature: string,
       entity: string,
       phone: string,
+      city?: string,
+      residence_address?: string,
       bankNumberAccount: string,
       cantity: string,
       terms_and_conditions: boolean | string,
@@ -83,6 +85,8 @@ export class LoanController {
       phone: body.phone,
       // You may also need to include these other fields from the DTO
       entity: body.entity, // This should come from request body
+      city: body.city || undefined,
+      residence_address: body.residence_address || undefined,
       bankNumberAccount: body.bankNumberAccount, // This should come from request body
       cantity: body.cantity, // This should come from request body
       terms_and_conditions: body.terms_and_conditions === 'true' || body.terms_and_conditions === true, // Ensure boolean type

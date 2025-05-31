@@ -6,6 +6,8 @@ export class CreateLoanApplicationDto {
   cantity: string;
   signature: string;
   upSignatureId: string;
+  city?: string;
+  residence_address?: string;
   terms_and_conditions: boolean;
   labor_card: string | null;
   upid_labor_card: string | null;
@@ -28,6 +30,8 @@ export class PreCreateLoanApplicationDto {
   bankNumberAccount: string;
   cantity: string;
   signature: string;
+  city?: string;
+  residence_address?: string;
   terms_and_conditions: boolean;
   labor_card: Express.Multer.File | null;
   fisrt_flyer: Express.Multer.File | null;

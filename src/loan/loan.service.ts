@@ -86,6 +86,8 @@ export class LoanService {
           cantity: data.cantity,
           terms_and_conditions: data.terms_and_conditions,
           signature: data.signature,
+          city: data.city || null, // Agregar ciudad si existe,
+          residence_address: data.residence_address || null, // Agregar dirección de residencia si existe
           upSignatureId: data.upSignatureId,
           status: LoanStatus.PENDING, // Agregar estado por defecto
 
@@ -225,6 +227,8 @@ export class LoanService {
           entity: data.entity as string,
           bankNumberAccount: data.bankNumberAccount as string,
           cantity: data.cantity as string,
+          city: data.city,
+          residence_address: data.residence_address,
           terms_and_conditions: data.terms_and_conditions as boolean,
           fisrt_flyer: fisrt_flyer ?? null,
           upid_first_flayer: upid_first_flyer ?? null,
@@ -307,6 +311,8 @@ export class LoanService {
         entity: preLoan.entity,
         bankNumberAccount: preLoan.bankNumberAccount,
         cantity: preLoan.cantity,
+        city: preLoan.city ?? undefined,
+        residence_address: preLoan.residence_address ?? undefined,
         terms_and_conditions: preLoan.terms_and_conditions,
         fisrt_flyer: preLoan.fisrt_flyer,
         upid_first_flayer: preLoan.upid_first_flayer,
