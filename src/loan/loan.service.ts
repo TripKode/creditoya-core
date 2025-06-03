@@ -16,11 +16,11 @@ export class LoanService {
   private logger = new Logger(LoanService.name);
 
   constructor(
-    private prisma: PrismaService,
+    private readonly prisma: PrismaService,
     private readonly mailService: MailService,
     private readonly pdfService: PdfsService,
     private readonly gcpService: GoogleCloudService,
-    private readonly cloudinary: CloudinaryService
+    private readonly cloudinary: CloudinaryService,
   ) { }
 
   // Método para crear una solicitud de préstamo
@@ -386,6 +386,41 @@ export class LoanService {
       const updatedLoan = await this.prisma.loanApplication.update({
         where: { id },
         data: updateObject,
+        include: {
+          user: true,
+        },
+      });
+
+      return updatedLoan;
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      throw new BadRequestException('Error al actualizar la solicitud de préstamo');
+    }
+  }
+
+  async disburseLoan(id: string) {
+    try {
+      // Verificar que la solicitud existe
+      const existingLoan = await this.prisma.loanApplication.findUnique({
+        where: { id },
+        include: {
+          user: true,
+        },
+      });
+
+      if (!existingLoan) {
+        throw new NotFoundException(`Solicitud de préstamo con ID ${id} no encontrada`);
+      }
+
+      // Actualizar el préstamo
+      const updatedLoan = await this.prisma.loanApplication.update({
+        where: { id },
+        data: {
+          isDisbursed: true,
+          dateDisbursed: new Date(),
+        },
         include: {
           user: true,
         },

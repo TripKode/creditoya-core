@@ -136,6 +136,8 @@ model LoanApplication {
     upid_labor_card      String?
     terms_and_conditions Boolean
     signature            String
+    isDisbursed          Boolean?               @default(false)
+    dateDisbursed        DateTime?
     upSignatureId        String
     status               StatusLoan             @default(Pendiente)
     created_at           DateTime               @default(now())

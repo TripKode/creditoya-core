@@ -21,11 +21,11 @@ import {
   ForbiddenException,
   NotFoundException,
   UploadedFile,
+  Put,
 } from '@nestjs/common';
 import { LoanService } from './loan.service';
 import { UpdateLoanApplicationDto } from './dto/update-loan.dto';
 import { ChangeLoanStatusDto } from './dto/change-loan-status.dto';
-import { StatusLoan } from '@prisma/client';
 import { ClientAuthGuard } from '../auth/guards/client-auth.guard';
 import { IntranetAuthGuard } from '../auth/guards/intranet-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -109,6 +109,15 @@ export class LoanController {
 
     return this.loanService.verifyPreLoan(token, preId);
   }
+
+  @UseGuards(IntranetAuthGuard)
+  @Put(":loanId/disburse")
+  async DisburseLoan(
+    @Param('loanId', ParseUUIDPipe) loanId: string,
+  ) {
+    return this.loanService.disburseLoan(loanId);
+  }
+  
 
   @UseGuards(IntranetAuthGuard)
   @Get()
