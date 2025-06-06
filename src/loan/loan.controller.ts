@@ -21,11 +21,11 @@ import {
   ForbiddenException,
   NotFoundException,
   UploadedFile,
+  Put,
 } from '@nestjs/common';
 import { LoanService } from './loan.service';
 import { UpdateLoanApplicationDto } from './dto/update-loan.dto';
 import { ChangeLoanStatusDto } from './dto/change-loan-status.dto';
-import { StatusLoan } from '@prisma/client';
 import { ClientAuthGuard } from '../auth/guards/client-auth.guard';
 import { IntranetAuthGuard } from '../auth/guards/intranet-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -54,6 +54,8 @@ export class LoanController {
       signature: string,
       entity: string,
       phone: string,
+      city?: string,
+      residence_address?: string,
       bankNumberAccount: string,
       cantity: string,
       terms_and_conditions: boolean | string,
@@ -83,6 +85,8 @@ export class LoanController {
       phone: body.phone,
       // You may also need to include these other fields from the DTO
       entity: body.entity, // This should come from request body
+      city: body.city || undefined,
+      residence_address: body.residence_address || undefined,
       bankNumberAccount: body.bankNumberAccount, // This should come from request body
       cantity: body.cantity, // This should come from request body
       terms_and_conditions: body.terms_and_conditions === 'true' || body.terms_and_conditions === true, // Ensure boolean type
@@ -105,6 +109,15 @@ export class LoanController {
 
     return this.loanService.verifyPreLoan(token, preId);
   }
+
+  @UseGuards(IntranetAuthGuard)
+  @Put(":loanId/disburse")
+  async DisburseLoan(
+    @Param('loanId', ParseUUIDPipe) loanId: string,
+  ) {
+    return this.loanService.disburseLoan(loanId);
+  }
+  
 
   @UseGuards(IntranetAuthGuard)
   @Get()
@@ -143,6 +156,12 @@ export class LoanController {
   ) {
     console.log(user)
     return this.loanService.getApprovedLoans(page, pageSize, searchQuery);
+  }
+
+  @UseGuards(IntranetAuthGuard)
+  @Get('disbursed')
+  async getDisbursedLoans() {
+    return this.loanService.pendindLoanDisbursement();
   }
 
   // Solo personal de intranet puede ver préstamos diferidos

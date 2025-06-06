@@ -87,6 +87,8 @@ model PreLoanApplication {
     phone                String?
     bankNumberAccount    String
     entity               String
+    city                 String?
+    residence_address    String?
     labor_card           String?
     upid_labor_card      String?
     terms_and_conditions Boolean
@@ -123,6 +125,8 @@ model LoanApplication {
     reasonChangeCantity  String?
     phone                String?
     cantity              String
+    city                 String?
+    residence_address    String?
     newCantity           String?
     newCantityOpt        Boolean?
     bankSavingAccount    Boolean                @default(true)
@@ -132,6 +136,8 @@ model LoanApplication {
     upid_labor_card      String?
     terms_and_conditions Boolean
     signature            String
+    isDisbursed          Boolean?               @default(false)
+    dateDisbursed        DateTime?
     upSignatureId        String
     status               StatusLoan             @default(Pendiente)
     created_at           DateTime               @default(now())
@@ -207,6 +213,7 @@ enum companiesUser {
     providencia_sas
     providencia_cosecha
     conalta
+    con_alta // to old version schema registry
     pichichi_sas
     pichichi_coorte
     valor_agregado

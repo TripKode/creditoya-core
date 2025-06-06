@@ -12,6 +12,7 @@ import { generateMailTokenValidateLoan } from 'templatesEmails/generates/Generat
 import { generateMailCreateLoan } from 'templatesEmails/generates/GenerateCreateLoan';
 import { generateMailPasswordReset } from 'templatesEmails/generates/GenerateRecoveryPass';
 import { generateMailPasswordResetSuccess } from 'templatesEmails/generates/GenerateSuccesChangePass';
+import { generateMailDisbursement } from "templatesEmails/generates/GenerateDisbursed";
 import axios from 'axios';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -150,25 +151,34 @@ export class MailService {
     this.logger.log(`Email to ${options.to} added to queue. Queue size: ${this.emailQueue.length}`);
   }
 
-  private async getEmailSender(): Promise<string> {
-    // Email configurado desde variables de entorno
-    const senderEmail = this.configService.get<string>('SENDER_EMAIL');
+  private async getEmailSender(type: 'default' | 'security' | 'notifications' = 'default'): Promise<string> {
+    // Configuración de nombres de display y emails por tipo
+    const senderConfig = {
+      default: {
+        name: 'Creditoya',
+        email: this.configService.get<string>('SENDER_EMAIL') || 'noreply@creditoya.space'
+      },
+      security: {
+        name: 'Creditoya Seguridad',
+        email: this.configService.get<string>('SENDER_EMAIL_SECURITY') || 'seguridad@creditoya.space'
+      },
+      notifications: {
+        name: 'Creditoya Notificaciones',
+        email: this.configService.get<string>('SENDER_EMAIL_NOTIFICATIONS') || 'notificaciones@creditoya.space'
+      }
+    };
 
-    // Si no está configurado, usar default con el dominio verificado
-    if (!senderEmail) {
-      this.logger.warn('SENDER_EMAIL not configured, using default');
-      return 'noreply@creditoya.space';
-    }
+    const config = senderConfig[type];
 
-    // Validar que el email tenga el formato correcto
+    // Validar formato del email
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(senderEmail)) {
-      this.logger.error(`Invalid SENDER_EMAIL format: ${senderEmail}`);
-      throw new Error('Invalid SENDER_EMAIL configuration');
+    if (!emailRegex.test(config.email)) {
+      this.logger.error(`Invalid email format: ${config.email}`);
+      throw new Error('Invalid email configuration');
     }
 
-    // Validar que use el dominio verificado
-    const domain = senderEmail.split('@')[1];
+    // Validar dominio verificado
+    const domain = config.email.split('@')[1];
     const allowedDomains = ['creditoya.space'];
 
     if (!allowedDomains.includes(domain)) {
@@ -176,7 +186,8 @@ export class MailService {
       throw new Error(`Email domain '${domain}' is not verified with Resend`);
     }
 
-    return senderEmail;
+    // Retornar en formato "Display Name <email@domain.com>"
+    return `${config.name} <${config.email}>`;
   }
 
   /**
@@ -317,7 +328,7 @@ export class MailService {
       const html = await this.prepareHtmlTemplate(content);
 
       const mailOptions = {
-        from: await this.getEmailSender(),
+        from: await this.getEmailSender('default'), // Mostrará "Creditoya <noreply@creditoya.space>"
         to: data.mail,
         subject: 'Activación cuenta Intranet',
         html,
@@ -412,11 +423,11 @@ export class MailService {
       const html = await this.prepareHtmlTemplate(content);
 
       const mailOptions = {
-        from: await this.getEmailSender(),
+        from: await this.getEmailSender('security'), // Para verificaciones usar tipo security
         to: data.mail,
         subject: 'Código de verificación para tu solicitud de préstamo',
         html,
-        priority: 'high' as 'high', // Alta prioridad para correos de verificación
+        priority: 'high' as 'high',
       };
 
       this.queueEmail(mailOptions);
@@ -474,14 +485,14 @@ export class MailService {
 
       const content = generateMailChangeStatus({
         newStatus: data.newStatus,
-        employeeName: data.employeeName || 'Equipo Credito Ya',
+        employeeName: data.employeeName || 'Equipo Creditoya',
         loanId: data.loanId,
       });
 
       const html = await this.prepareHtmlTemplate(content);
 
       const mailOptions = {
-        from: await this.getEmailSender(),
+        from: await this.getEmailSender('notifications'), // Para notificaciones usar tipo notifications
         to: data.mail,
         subject: 'El estado de tu préstamo ha cambiado',
         html,
@@ -520,7 +531,11 @@ export class MailService {
     }
   }
 
-  async sendPasswordResetEmail({ userId, magicLink, to }: { to: string, magicLink: string, userId: string }): Promise<void> {
+  async sendPasswordResetEmail({ userId, magicLink, to }: {
+    to: string,
+    magicLink: string,
+    userId: string
+  }): Promise<void> {
     try {
       if (!to || !magicLink || !userId) {
         throw new Error('Missing required fields for password reset email');
@@ -530,11 +545,11 @@ export class MailService {
       const html = await this.prepareHtmlTemplate(content);
 
       const mailOptions = {
-        from: await this.getEmailSender(),
+        from: await this.getEmailSender('security'), // Mostrará "Creditoya Seguridad <seguridad@creditoya.space>"
         to,
         subject: 'Recuperación de contraseña',
         html,
-        priority: 'high' as 'high', // Alta prioridad para correos de seguridad
+        priority: 'high' as 'high',
       };
 
       this.queueEmail(mailOptions);
@@ -581,6 +596,43 @@ export class MailService {
     mail: string
   }): Promise<void> {
     // TODO: Implementar
+  }
+
+  async sendDisbursementEmail(data: {
+    mail: string;
+    amount: string;
+    bankAccount: string;
+    loanId: string;
+    disbursementDate: string;
+  }): Promise<void> {
+    try {
+      if (!data.mail || !data.amount || !data.bankAccount || !data.loanId || !data.disbursementDate) {
+        throw new Error('Missing required fields for disbursement email');
+      }
+
+      const content = generateMailDisbursement({
+        amount: data.amount,
+        bankAccount: data.bankAccount,
+        loanId: data.loanId,
+        disbursementDate: data.disbursementDate,
+      });
+
+      const html = await this.prepareHtmlTemplate(content);
+
+      const mailOptions = {
+        from: await this.getEmailSender('notifications'),
+        to: data.mail,
+        subject: '¡Tu préstamo ha sido desembolsado!',
+        html,
+        priority: 'high' as 'high',
+      };
+
+      this.queueEmail(mailOptions);
+
+    } catch (error) {
+      this.logger.error(`Failed to prepare disbursement email: ${error.message}`);
+      throw new Error(`Failed to send disbursement email: ${error.message}`);
+    }
   }
 
   // Método para uso en pruebas y depuración

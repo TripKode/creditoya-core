@@ -578,7 +578,7 @@ export class PdfsService {
               entity: docParams.entity as string,
               accountNumber: docParams.accountNumber as string,
             });
-            fileName = `sobre_prestamo_${docParams.numberDocument}.pdf`;
+            fileName = `gestion_de_cobro_${docParams.numberDocument}.pdf`;
             break;
 
           case 'instruction-letter':
