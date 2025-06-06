@@ -414,6 +414,11 @@ export class LoanService {
         throw new NotFoundException(`Solicitud de préstamo con ID ${id} no encontrada`);
       }
 
+      // Verificar que el préstamo no haya sido desembolsado previamente
+      if (existingLoan.isDisbursed) {
+        throw new BadRequestException('Este préstamo ya ha sido desembolsado');
+      }
+
       // Actualizar el préstamo
       const updatedLoan = await this.prisma.loanApplication.update({
         where: { id },
@@ -426,12 +431,193 @@ export class LoanService {
         },
       });
 
+      // Enviar email de notificación de desembolso
+      try {
+        await this.mailService.sendDisbursementEmail({
+          mail: updatedLoan.user.email,
+          amount: `$${updatedLoan.cantity.toLocaleString()}`,
+          bankAccount: `****${updatedLoan.bankNumberAccount?.slice(-4) || '****'}`, // Mostrar solo los últimos 4 dígitos
+          loanId: updatedLoan.id,
+          disbursementDate: updatedLoan.dateDisbursed
+            ? updatedLoan.dateDisbursed.toLocaleDateString('es-CO', {
+              year: 'numeric',
+              month: 'long',
+              day: 'numeric'
+            })
+            : '',
+        });
+
+        this.logger.log(`Disbursement email sent successfully for loan ${id}`);
+      } catch (emailError) {
+        // Log el error del email pero no fallar la operación de desembolso
+        this.logger.error(`Failed to send disbursement email for loan ${id}: ${emailError.message}`);
+      }
+
       return updatedLoan;
     } catch (error) {
-      if (error instanceof NotFoundException) {
+      if (error instanceof NotFoundException || error instanceof BadRequestException) {
         throw error;
       }
       throw new BadRequestException('Error al actualizar la solicitud de préstamo');
+    }
+  }
+
+  async pendindLoanDisbursement(
+    page: number = 1,
+    pageSize: number = 10,
+    searchQuery?: string,
+  ): Promise<{ data: LoanApplication[]; total: number }> {
+    const skip = (page - 1) * pageSize;
+
+    try {
+      // Build the base where filter for approved loans pending disbursement
+      const where: any = {
+        status: StatusLoan.Aprobado,
+        // Solo préstamos que NO han sido desembolsados
+        OR: [
+          { isDisbursed: false },
+          { isDisbursed: null }
+        ],
+        // Y que NO tengan fecha de desembolso
+        dateDisbursed: null
+      };
+
+      // ---- BÚSQUEDA MEJORADA (similar a getLoans) ----
+      if (searchQuery && searchQuery.trim() !== '') {
+        const cleanSearchQuery = searchQuery.trim();
+
+        // Evaluar si la búsqueda es un número de documento
+        const isDocNumberSearch = /^\d+$/.test(cleanSearchQuery);
+
+        let userIdsToInclude: string[] = [];
+
+        // Si parece un número de documento, buscar primero por documento
+        if (isDocNumberSearch) {
+          const usersWithMatchingDocument = await this.prisma.user.findMany({
+            where: {
+              Document: {
+                some: {
+                  number: { contains: cleanSearchQuery }
+                }
+              }
+            },
+            select: { id: true }
+          });
+
+          userIdsToInclude = usersWithMatchingDocument.map(u => u.id);
+        }
+
+        // Si no encontramos usuarios por número de documento o no es un número,
+        // realizamos búsqueda por nombre
+        if (userIdsToInclude.length === 0 && cleanSearchQuery.length >= 2) {
+          // Usar nuestra función especializada de búsqueda por nombre
+          userIdsToInclude = await this.searchLoansByUserName(cleanSearchQuery, StatusLoan.Aprobado);
+        }
+
+        // Preparar las condiciones de búsqueda
+        const searchConditions: Prisma.LoanApplicationWhereInput[] = [];
+
+        // Incluir búsqueda por ID de préstamo solo si parece un ID
+        const isPossibleId = cleanSearchQuery.includes('-') || /^[a-f0-9-]+$/i.test(cleanSearchQuery);
+
+        if (isPossibleId) {
+          searchConditions.push({
+            id: { contains: cleanSearchQuery, mode: 'insensitive' as Prisma.QueryMode }
+          });
+        }
+
+        // Incluir búsqueda por IDs de usuario si encontramos alguna coincidencia
+        if (userIdsToInclude.length > 0) {
+          searchConditions.push({
+            userId: { in: userIdsToInclude }
+          });
+        }
+
+        // Si no tenemos condiciones de búsqueda, devolver un resultado vacío
+        if (searchConditions.length === 0) {
+          this.logger.log(`No se encontraron coincidencias para préstamos pendientes de desembolso: ${cleanSearchQuery}`);
+          return { data: [], total: 0 };
+        }
+
+        // Combinar las condiciones base con las de búsqueda
+        where.AND = [
+          {
+            status: StatusLoan.Aprobado,
+            OR: [
+              { isDisbursed: false },
+              { isDisbursed: null }
+            ],
+            dateDisbursed: null
+          },
+          {
+            OR: searchConditions
+          }
+        ];
+
+        // Limpiar el OR original ya que usamos AND
+        delete where.OR;
+        delete where.status;
+        delete where.dateDisbursed;
+      }
+      // ---- FIN DE BÚSQUEDA MEJORADA ----
+
+      // Count total loans matching criteria for pagination
+      const totalLoans = await this.prisma.loanApplication.count({
+        where
+      });
+
+      // Obtener los préstamos pendientes de desembolso con información completa del usuario
+      const loans = await this.prisma.loanApplication.findMany({
+        where,
+        include: {
+          user: {
+            select: {
+              id: true,
+              email: true,
+              names: true,
+              firstLastName: true,
+              secondLastName: true,
+              phone_whatsapp: true,
+              residence_phone_number: true,
+              birth_day: true,
+              genre: true,
+              residence_address: true,
+              city: true,
+              currentCompanie: true,
+              avatar: true,
+              isBan: true,
+              createdAt: true,
+              updatedAt: true,
+              // Excluimos password por seguridad
+            }
+          },
+          // Incluir información relacionada que pueda ser útil
+          GeneratedDocuments: true,
+          EventLoanApplication: true
+        },
+        orderBy: { created_at: 'desc' },
+        skip,
+        take: pageSize
+      });
+
+      // Formatear los datos para incluir explícitamente el userId del creador del préstamo
+      const formattedLoans = loans.map(loan => {
+        return {
+          ...loan,
+          userId: loan.userId, // ID del usuario creador del préstamo
+          creatorUserId: loan.userId // Alias explícito para mayor claridad
+        };
+      });
+
+      this.logger.log(`Obtenidos ${formattedLoans.length} préstamos aprobados pendientes de desembolso de un total de ${totalLoans}`);
+
+      return {
+        data: formattedLoans,
+        total: totalLoans
+      };
+    } catch (error) {
+      this.logger.error('Error al obtener préstamos pendientes de desembolso:', error);
+      throw new BadRequestException(`Error al obtener las solicitudes de préstamo pendientes de desembolso: ${error.message}`);
     }
   }
 
@@ -1370,7 +1556,7 @@ export class LoanService {
 
   // aux methods
 
-  // Enhanced version with fixed queryRaw implementation
+  // Enhanced version with fixed queryRaw implementation and dynamic company handling
   private async getLoans(
     status: StatusLoan | null = null,
     page: number = 1,
@@ -1469,46 +1655,76 @@ export class LoanService {
         where
       });
 
-      // Obtener los préstamos con la información completa del usuario (excepto password)
+      // Use findMany instead of $queryRaw for type safety
       const loans = await this.prisma.loanApplication.findMany({
         where,
         include: {
-          user: {
-            select: {
-              id: true,
-              email: true,
-              names: true,
-              firstLastName: true,
-              secondLastName: true,
-              phone_whatsapp: true,
-              residence_phone_number: true,
-              birth_day: true,
-              genre: true,
-              residence_address: true,
-              city: true,
-              currentCompanie: true,
-              avatar: true,
-              isBan: true,
-              createdAt: true,
-              updatedAt: true,
-              // Excluimos password por seguridad
-            }
-          },
-          // Incluir información relacionada que pueda ser útil
-          GeneratedDocuments: true,
-          EventLoanApplication: true
+          user: true
         },
-        orderBy: { created_at: 'desc' },
+        orderBy: {
+          created_at: 'desc'
+        },
         skip,
         take: pageSize
       });
 
-      // Asegurar que los datos estén correctamente formateados
-      const formattedLoans = loans.map(loan => {
-        // Asegurar que userId está correctamente expuesto
+      // Procesar los resultados y manejar el mapeo de con_alta a conalta
+      const formattedLoans = loans.map((loan: any) => {
+        // Normalizar el valor de currentCompanie
+        let normalizedCompanie = loan.user?.currentCompanie;
+        if (normalizedCompanie === 'con_alta') {
+          normalizedCompanie = 'conalta';
+        }
+
         return {
-          ...loan,
-          userId: loan.userId // Asegurar que esté explícitamente incluido aunque ya lo trae Prisma
+          id: loan.id,
+          userId: loan.userId,
+          employeeId: loan.employeeId,
+          fisrt_flyer: loan.fisrt_flyer,
+          upid_first_flyer: loan.upid_first_flyer,
+          second_flyer: loan.second_flyer,
+          upid_second_flyer: loan.upid_second_flyer,
+          third_flyer: loan.third_flyer,
+          upid_third_flyer: loan.upid_third_flyer,
+          reasonReject: loan.reasonReject,
+          reasonChangeCantity: loan.reasonChangeCantity,
+          phone: loan.phone,
+          cantity: loan.cantity,
+          city: loan.city,
+          residence_address: loan.residence_address,
+          newCantity: loan.newCantity,
+          newCantityOpt: loan.newCantityOpt,
+          bankSavingAccount: loan.bankSavingAccount,
+          bankNumberAccount: loan.bankNumberAccount,
+          entity: loan.entity,
+          labor_card: loan.labor_card,
+          upid_labor_card: loan.upid_labor_card,
+          terms_and_conditions: loan.terms_and_conditions,
+          signature: loan.signature,
+          isDisbursed: loan.isDisbursed,
+          dateDisbursed: loan.dateDisbursed,
+          upSignatureId: loan.upSignatureId,
+          status: loan.status,
+          created_at: loan.created_at,
+          updated_at: loan.updated_at,
+          user: loan.user ? {
+            id: loan.user.id,
+            email: loan.user.email,
+            names: loan.user.names,
+            firstLastName: loan.user.firstLastName,
+            secondLastName: loan.user.secondLastName,
+            phone_whatsapp: loan.user.phone_whatsapp,
+            residence_phone_number: loan.user.residence_phone_number,
+            birth_day: loan.user.birth_day,
+            genre: loan.user.genre,
+            residence_address: loan.user.residence_address,
+            city: loan.user.city,
+            currentCompanie: normalizedCompanie, // Usar el valor normalizado
+            avatar: loan.user.avatar,
+            isBan: loan.user.isBan,
+            createdAt: loan.user.createdAt,
+            updatedAt: loan.user.updatedAt,
+          } : null
         };
       });
 

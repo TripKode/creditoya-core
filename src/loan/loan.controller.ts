@@ -158,6 +158,12 @@ export class LoanController {
     return this.loanService.getApprovedLoans(page, pageSize, searchQuery);
   }
 
+  @UseGuards(IntranetAuthGuard)
+  @Get('disbursed')
+  async getDisbursedLoans() {
+    return this.loanService.pendindLoanDisbursement();
+  }
+
   // Solo personal de intranet puede ver préstamos diferidos
   @UseGuards(IntranetAuthGuard)
   @Get('deferred')

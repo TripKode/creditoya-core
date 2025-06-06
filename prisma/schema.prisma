@@ -213,6 +213,7 @@ enum companiesUser {
     providencia_sas
     providencia_cosecha
     conalta
+    con_alta // to old version schema registry
     pichichi_sas
     pichichi_coorte
     valor_agregado

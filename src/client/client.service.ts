@@ -249,46 +249,22 @@ export class ClientService {
   }
 
   async update(id: string, data: any): Promise<User> {
-    console.log("Datos recibidos en update:", JSON.stringify(data, null, 2));
+    // console.log("Datos recibidos en update:", JSON.stringify(data, null, 2));
 
-    // Filtrar campos principales y relaciones
+    // Filtrar campos principales (sin Document)
     const allowedFields = [
       'email', 'names', 'firstLastName', 'secondLastName', 'currentCompanie',
       'avatar', 'phone', 'residence_phone_number', 'phone_whatsapp', 'birth_day',
-      'genre', 'residence_address', 'city', 'isBan', 'Document'
+      'genre', 'residence_address', 'city', 'isBan'
     ];
 
     const filteredData: any = {};
 
-    // Filtrar campos permitidos incluyendo Document
+    // Filtrar campos permitidos (excluyendo Document)
     for (const [key, value] of Object.entries(data)) {
       if (allowedFields.includes(key)) {
         filteredData[key] = value;
       }
-    }
-
-    console.log("Datos filtrados:", JSON.stringify(filteredData, null, 2));
-
-    // Manejar actualización anidada de Document
-    if (filteredData.Document?.update) {
-      console.log("Procesando actualización de Document:", JSON.stringify(filteredData.Document, null, 2));
-
-      // Verificar que existe el documento
-      const documentExists = await this.prisma.document.findUnique({
-        where: { id: filteredData.Document.update.where.id }
-      });
-
-      if (!documentExists) {
-        throw new Error(`Documento con ID ${filteredData.Document.update.where.id} no encontrado`);
-      }
-
-      // Crear la estructura correcta para Prisma
-      filteredData.Document = {
-        update: {
-          where: { id: filteredData.Document.update.where.id },
-          data: filteredData.Document.update.data
-        }
-      };
     }
 
     // Conversión de birth_day
@@ -296,17 +272,58 @@ export class ClientService {
       filteredData.birth_day = new Date(filteredData.birth_day);
     }
 
+    // Manejar actualización de documentos usando sintaxis de Prisma
+    if (data.Document && Array.isArray(data.Document)) {
+      const documents = data.Document;
+
+      // Preparar operaciones para documentos con tipo explícito
+      const documentOperations: Array<{
+        where: { id: string };
+        data: {
+          documentSides?: string;
+          upId?: string;
+          imageWithCC?: string;
+          typeDocument?: string;
+          number?: string;
+        };
+      }> = [];
+
+      for (const docData of documents) {
+        if (docData.id) {
+          // Si el documento tiene ID, actualizarlo
+          documentOperations.push({
+            where: { id: docData.id },
+            data: {
+              documentSides: docData.documentSides || "No definido",
+              upId: docData.upId || "No definido",
+              imageWithCC: docData.imageWithCC || "No definido",
+              typeDocument: docData.typeDocument || "CC",
+              number: docData.number || "No definido"
+            }
+          });
+        }
+      }
+
+      // Solo agregar Document si hay operaciones
+      if (documentOperations.length > 0) {
+        filteredData.Document = {
+          update: documentOperations
+        };
+      }
+    }
+
     console.log("Datos finales para Prisma:", JSON.stringify(filteredData, null, 2));
 
     try {
-      const update = await this.prisma.user.update({
+      const updatedUser = await this.prisma.user.update({
         where: { id },
         data: filteredData,
         include: { Document: true }
       });
 
       this.logger.log(`Usuario actualizado: ${id}`, filteredData);
-      return update;
+      return updatedUser;
+
     } catch (prismaError) {
       console.error("Error de Prisma:", prismaError);
       throw new Error(`Error al actualizar usuario: ${prismaError.message}`);

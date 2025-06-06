@@ -12,6 +12,7 @@ import { generateMailTokenValidateLoan } from 'templatesEmails/generates/Generat
 import { generateMailCreateLoan } from 'templatesEmails/generates/GenerateCreateLoan';
 import { generateMailPasswordReset } from 'templatesEmails/generates/GenerateRecoveryPass';
 import { generateMailPasswordResetSuccess } from 'templatesEmails/generates/GenerateSuccesChangePass';
+import { generateMailDisbursement } from "templatesEmails/generates/GenerateDisbursed";
 import axios from 'axios';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -595,6 +596,43 @@ export class MailService {
     mail: string
   }): Promise<void> {
     // TODO: Implementar
+  }
+
+  async sendDisbursementEmail(data: {
+    mail: string;
+    amount: string;
+    bankAccount: string;
+    loanId: string;
+    disbursementDate: string;
+  }): Promise<void> {
+    try {
+      if (!data.mail || !data.amount || !data.bankAccount || !data.loanId || !data.disbursementDate) {
+        throw new Error('Missing required fields for disbursement email');
+      }
+
+      const content = generateMailDisbursement({
+        amount: data.amount,
+        bankAccount: data.bankAccount,
+        loanId: data.loanId,
+        disbursementDate: data.disbursementDate,
+      });
+
+      const html = await this.prepareHtmlTemplate(content);
+
+      const mailOptions = {
+        from: await this.getEmailSender('notifications'),
+        to: data.mail,
+        subject: '¡Tu préstamo ha sido desembolsado!',
+        html,
+        priority: 'high' as 'high',
+      };
+
+      this.queueEmail(mailOptions);
+
+    } catch (error) {
+      this.logger.error(`Failed to prepare disbursement email: ${error.message}`);
+      throw new Error(`Failed to send disbursement email: ${error.message}`);
+    }
   }
 
   // Método para uso en pruebas y depuración
