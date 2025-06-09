@@ -388,24 +388,31 @@ export class GoogleCloudService {
   /**
    * Downloads a ZIP archive from Google Cloud Storage.
    * @param documentId ID of the document (used for logging)
-   * @param fileName Name of the ZIP file to download
+   * @param filePath Path of the file within the bucket (not the full URL)
    * @returns Buffer containing the ZIP file data
    */
-  async downloadZipFromGcs(documentId: string, fileName: string): Promise<Buffer> {
+  async downloadZipFromGcs(documentId: string, filePath: string): Promise<Buffer> {
     try {
       const storage = this.getStorageInstance();
       const bucketName = process.env.NAME_BUCKET_GOOGLE_STORAGE as string;
 
-      // Download the ZIP file
-      const [fileContents] = await storage
-        .bucket(bucketName)
-        .file(fileName)
-        .download();
+      this.logger.log(`Downloading file: ${filePath} from bucket: ${bucketName} for document: ${documentId}`);
 
-      this.logger.log(`ZIP file for document ${documentId} downloaded successfully`);
+      // Check if file exists first
+      const file = storage.bucket(bucketName).file(filePath);
+      const [exists] = await file.exists();
+
+      if (!exists) {
+        throw new Error(`File ${filePath} does not exist in bucket ${bucketName}`);
+      }
+
+      // Download the ZIP file
+      const [fileContents] = await file.download();
+
+      this.logger.log(`ZIP file for document ${documentId} downloaded successfully. Size: ${fileContents.length} bytes`);
       return fileContents;
     } catch (error) {
-      this.logger.error(`Error downloading ZIP file for document ${documentId}:`, error);
+      this.logger.error(`Error downloading ZIP file for document ${documentId} from path ${filePath}:`, error);
       throw error;
     }
   }

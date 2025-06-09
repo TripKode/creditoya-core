@@ -956,10 +956,25 @@ export class PdfsService {
         throw new Error('Document not found or public URL is missing');
       }
 
+      // Extract the file path from the full URL
+      // Remove the base GCS URL to get just the file path within the bucket
+      const bucketName = process.env.NAME_BUCKET_GOOGLE_STORAGE as string;
+      const baseUrl = `https://storage.googleapis.com/${bucketName}/`;
+
+      let filePath: string;
+      if (document.publicUrl.startsWith(baseUrl)) {
+        filePath = document.publicUrl.replace(baseUrl, '');
+      } else {
+        // If it's already just a file path, use it as is
+        filePath = document.publicUrl;
+      }
+
+      this.logger.log(`Attempting to download file: ${filePath} from bucket: ${bucketName}`);
+
       // Download the zip file from Google Cloud Storage
       const fileBuffer = await this.googleCloudService.downloadZipFromGcs(
         documentId,
-        document.publicUrl
+        filePath
       );
 
       // Update download count
@@ -969,7 +984,7 @@ export class PdfsService {
       });
 
       // Extract filename from URL or use a default
-      const fileName = document.publicUrl.split('/').pop() || `documents_${documentId}.zip`;
+      const fileName = filePath.split('/').pop() || `documents_${documentId}.zip`;
 
       this.logger.log(`Document ${documentId} downloaded successfully. New download count: ${document.downloadCount + 1}`);
 

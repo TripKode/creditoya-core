@@ -187,7 +187,7 @@ export class PdfsController {
   }
 
   // Accesible tanto para clientes como para intranet con validaciones
-  @UseGuards(CombinedAuthGuard)
+  // @UseGuards(IntranetAuthGuard)
   @Get('document/:documentId')
   async downloadDocument(
     @Param('documentId') documentId: string,
@@ -212,12 +212,6 @@ export class PdfsController {
     // }
 
     const { buffer, fileName, contentType } = await this.pdfsService.downloadDocument(documentId);
-
-    // Registrar la descarga
-    await this.prismaService.generatedDocuments.update({
-      where: { id: documentId },
-      data: { downloadCount: { increment: 1 } }
-    });
 
     res.set({
       'Content-Type': contentType,
@@ -257,15 +251,15 @@ export class PdfsController {
     @Query('userId') userId?: string,
     @Query('loanId') loanId?: string
   ) {
-    // // Si es un cliente, solo puede ver sus propios documentos
-    // if (user.type === 'client') {
-    //   if (userId && userId !== user.id) {
-    //     throw new ForbiddenException('Solo puede ver sus propios documentos');
-    //   }
+    // Si es un cliente, solo puede ver sus propios documentos
+    if (user.type === 'client') {
+      if (userId && userId !== user.id) {
+        throw new ForbiddenException('Solo puede ver sus propios documentos');
+      }
 
-    //   // Forzar que solo muestre documentos del usuario autenticado
-    //   userId = user.id;
-    // }
+      // Forzar que solo muestre documentos del usuario autenticado
+      userId = user.id;
+    }
 
     return this.pdfsService.listNeverDownloadedDocuments({ userId, loanId });
   }
@@ -278,15 +272,15 @@ export class PdfsController {
     @Query('userId') userId?: string,
     @Query('loanId') loanId?: string
   ) {
-    // // Si es un cliente, solo puede ver sus propios documentos
-    // if (user.type === 'client') {
-    //   if (userId && userId !== user.id) {
-    //     throw new ForbiddenException('Solo puede ver sus propios documentos');
-    //   }
+    // Si es un cliente, solo puede ver sus propios documentos
+    if (user.type === 'client') {
+      if (userId && userId !== user.id) {
+        throw new ForbiddenException('Solo puede ver sus propios documentos');
+      }
 
-    //   // Forzar que solo muestre documentos del usuario autenticado
-    //   userId = user.id;
-    // }
+      // Forzar que solo muestre documentos del usuario autenticado
+      userId = user.id;
+    }
 
     return this.pdfsService.listDownloadedDocuments({ userId, loanId });
   }
