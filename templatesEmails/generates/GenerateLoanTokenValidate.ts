@@ -37,7 +37,7 @@ export const generateMailTokenValidateLoan = ({ token }: MailProps) => {
       <mj-section>
         <mj-column>
           <mj-text font-size="12px">Por favor ingresa este código en la plataforma para continuar con tu solicitud de préstamo.</mj-text>
-          <mj-button background-color="#4CAF50" color="#ffffff" href="https://creditoya.vercel.app/validate">Ir a verificar</mj-button>
+          <mj-button background-color="#4CAF50" color="#ffffff" href="https://creditoya.space/panel/nueva-solicitud">Ir a verificar</mj-button>
         </mj-column>
       </mj-section>
     </mj-body>

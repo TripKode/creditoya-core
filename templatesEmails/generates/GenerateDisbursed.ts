@@ -54,7 +54,7 @@ export const generateMailDisbursement = ({
     <mj-section>
       <mj-column>
         <mj-text font-size="12px">El dinero debería reflejarse en tu cuenta en las próximas 24-48 horas hábiles. Para más detalles, accede a tu cuenta</mj-text>
-        <mj-button background-color="#4CAF50" color="#ffffff" href="https://www.tucuenta.com" css-class="left-align">Ir a tu cuenta</mj-button>
+        <mj-button background-color="#4CAF50" color="#ffffff" href="https://creditoya.space/panel/solicitud/${loanId}" css-class="left-align">Ir a tu cuenta</mj-button>
       </mj-column>
     </mj-section>
   </mj-body>

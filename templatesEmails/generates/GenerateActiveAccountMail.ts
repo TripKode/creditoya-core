@@ -46,7 +46,7 @@ export const ActiveAccountMail = ({
     <mj-section>
       <mj-column>
         <mj-text font-size="12px">Para más detalles, por favor accede aquí a tu cuenta</mj-text>
-        <mj-button background-color="#4CAF50" color="#ffffff" href="https://intranet-creditoya.vercel.app/" css-class="left-align">Visitar Intranet</mj-button>
+        <mj-button background-color="#4CAF50" color="#ffffff" href="https://creditoya.space/" css-class="left-align">Visitar Intranet</mj-button>
       </mj-column>
     </mj-section>
   </mj-body>

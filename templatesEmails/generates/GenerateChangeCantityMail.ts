@@ -54,7 +54,7 @@ export const ChangeCantityMail = ({
     <mj-section>
       <mj-column>
         <mj-text font-size="12px">Para más detalles, por favor accede aquí a tu cuenta</mj-text>
-        <mj-button background-color="#4CAF50" color="#ffffff" href="https://creditoya.vercel.app/req/${loanId}" css-class="left-align">Ir a tu cuenta</mj-button>
+        <mj-button background-color="#4CAF50" color="#ffffff" href="https://creditoya.space/req/${loanId}" css-class="left-align">Ir a tu cuenta</mj-button>
       </mj-column>
     </mj-section>
   </mj-body>
