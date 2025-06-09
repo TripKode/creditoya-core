@@ -117,7 +117,7 @@ export class LoanController {
   ) {
     return this.loanService.disburseLoan(loanId);
   }
-  
+
 
   @UseGuards(IntranetAuthGuard)
   @Get()
@@ -215,6 +215,46 @@ export class LoanController {
     } catch (error) {
       this.logger.error(`Error al obtener préstamo: ${error.message}`, error.stack);
       throw new NotFoundException('El préstamo solicitado no existe o no está disponible');
+    }
+  }
+
+  @UseGuards(CombinedAuthGuard)
+  @Get('/disbursed/pending')
+  async loansPendingDisbursed(
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+    @Query('search') search?: string,
+  ) {
+    const pageNumber = page ? parseInt(page, 10) : 1;
+    const pageSizeNumber = pageSize ? parseInt(pageSize, 10) : 10;
+
+    try {
+      const result = await this.loanService.pendindLoanDisbursement(
+        pageNumber,
+        pageSizeNumber,
+        search
+      );
+
+      return {
+        success: true,
+        data: result.data,
+        total: result.total,
+        page: pageNumber,
+        pageSize: pageSizeNumber,
+        totalPages: Math.ceil(result.total / pageSizeNumber),
+        status: 'success'
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message,
+        data: [],
+        total: 0,
+        page: pageNumber,
+        pageSize: pageSizeNumber,
+        totalPages: 0,
+        status: 'error'
+      };
     }
   }
 
