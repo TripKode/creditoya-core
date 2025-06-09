@@ -1277,7 +1277,9 @@ export class LoanService {
         include: {
           user: { include: { Document: true } },
           GeneratedDocuments: true,
-          EventLoanApplication: true
+          EventLoanApplication: {
+            include: { LoanApplication: true }
+          }
         },
       });
 
