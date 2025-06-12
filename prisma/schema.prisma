@@ -144,6 +144,15 @@ model LoanApplication {
     updated_at           DateTime               @updatedAt
     GeneratedDocuments   GeneratedDocuments[]
     EventLoanApplication EventLoanApplication[]
+
+    @@index([status])
+    @@index([isDisbursed])
+    @@index([dateDisbursed])
+    @@index([created_at])
+    @@index([userId])
+
+    // Índice compuesto para la consulta específica de pendientes de desembolso
+    @@index([status, isDisbursed, dateDisbursed, created_at])
 }
 
 model EventLoanApplication {

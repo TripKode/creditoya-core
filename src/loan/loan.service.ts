@@ -462,164 +462,39 @@ export class LoanService {
     }
   }
 
-  async pendindLoanDisbursement(
-    page: number = 1,
-    pageSize: number = 10,
-    searchQuery?: string,
-  ): Promise<{ data: LoanApplication[]; total: number }> {
+  async pendingLoanDisbursement(page: number, pageSize: number, search?: string) {
     const skip = (page - 1) * pageSize;
 
-    try {
-      // Build the base where filter for approved loans pending disbursement
-      const where: any = {
-        status: StatusLoan.Aprobado,
-        // Solo préstamos que NO han sido desembolsados
-        OR: [
-          { isDisbursed: false },
-          { isDisbursed: null }
-        ],
-        // Y que NO tengan fecha de desembolso
-        dateDisbursed: null
-      };
+    const whereClause: any = {
+      status: 'Aprobado',
+      isDisbursed: false,
+    };
 
-      // ---- BÚSQUEDA MEJORADA (similar a getLoans) ----
-      if (searchQuery && searchQuery.trim() !== '') {
-        const cleanSearchQuery = searchQuery.trim();
+    if (search) {
+      whereClause.OR = [
+        { user: { names: { contains: search, mode: 'insensitive' } } },
+        { user: { firstLastName: { contains: search, mode: 'insensitive' } } },
+        { user: { secondLastName: { contains: search, mode: 'insensitive' } } },
+        { phone: { contains: search, mode: 'insensitive' } },
+      ];
+    }
 
-        // Evaluar si la búsqueda es un número de documento
-        const isDocNumberSearch = /^\d+$/.test(cleanSearchQuery);
-
-        let userIdsToInclude: string[] = [];
-
-        // Si parece un número de documento, buscar primero por documento
-        if (isDocNumberSearch) {
-          const usersWithMatchingDocument = await this.prisma.user.findMany({
-            where: {
-              Document: {
-                some: {
-                  number: { contains: cleanSearchQuery }
-                }
-              }
-            },
-            select: { id: true }
-          });
-
-          userIdsToInclude = usersWithMatchingDocument.map(u => u.id);
-        }
-
-        // Si no encontramos usuarios por número de documento o no es un número,
-        // realizamos búsqueda por nombre
-        if (userIdsToInclude.length === 0 && cleanSearchQuery.length >= 2) {
-          // Usar nuestra función especializada de búsqueda por nombre
-          userIdsToInclude = await this.searchLoansByUserName(cleanSearchQuery, StatusLoan.Aprobado);
-        }
-
-        // Preparar las condiciones de búsqueda
-        const searchConditions: Prisma.LoanApplicationWhereInput[] = [];
-
-        // Incluir búsqueda por ID de préstamo solo si parece un ID
-        const isPossibleId = cleanSearchQuery.includes('-') || /^[a-f0-9-]+$/i.test(cleanSearchQuery);
-
-        if (isPossibleId) {
-          searchConditions.push({
-            id: { contains: cleanSearchQuery, mode: 'insensitive' as Prisma.QueryMode }
-          });
-        }
-
-        // Incluir búsqueda por IDs de usuario si encontramos alguna coincidencia
-        if (userIdsToInclude.length > 0) {
-          searchConditions.push({
-            userId: { in: userIdsToInclude }
-          });
-        }
-
-        // Si no tenemos condiciones de búsqueda, devolver un resultado vacío
-        if (searchConditions.length === 0) {
-          this.logger.log(`No se encontraron coincidencias para préstamos pendientes de desembolso: ${cleanSearchQuery}`);
-          return { data: [], total: 0 };
-        }
-
-        // Combinar las condiciones base con las de búsqueda
-        where.AND = [
-          {
-            status: StatusLoan.Aprobado,
-            OR: [
-              { isDisbursed: false },
-              { isDisbursed: null }
-            ],
-            dateDisbursed: null
-          },
-          {
-            OR: searchConditions
-          }
-        ];
-
-        // Limpiar el OR original ya que usamos AND
-        delete where.OR;
-        delete where.status;
-        delete where.dateDisbursed;
-      }
-      // ---- FIN DE BÚSQUEDA MEJORADA ----
-
-      // Count total loans matching criteria for pagination
-      const totalLoans = await this.prisma.loanApplication.count({
-        where
-      });
-
-      // Obtener los préstamos pendientes de desembolso con información completa del usuario
-      const loans = await this.prisma.loanApplication.findMany({
-        where,
+    const [data, total] = await this.prisma.$transaction([
+      this.prisma.loanApplication.findMany({
+        skip,
+        take: pageSize,
+        where: whereClause,
         include: {
-          user: {
-            select: {
-              id: true,
-              email: true,
-              names: true,
-              firstLastName: true,
-              secondLastName: true,
-              phone_whatsapp: true,
-              residence_phone_number: true,
-              birth_day: true,
-              genre: true,
-              residence_address: true,
-              city: true,
-              currentCompanie: true,
-              avatar: true,
-              isBan: true,
-              createdAt: true,
-              updatedAt: true,
-              // Excluimos password por seguridad
-            }
-          },
-          // Incluir información relacionada que pueda ser útil
-          GeneratedDocuments: true,
-          EventLoanApplication: true
+          user: true,
         },
         orderBy: { created_at: 'desc' },
-        skip,
-        take: pageSize
-      });
+      }),
+      this.prisma.loanApplication.count({ where: whereClause }),
+    ]);
 
-      // Formatear los datos para incluir explícitamente el userId del creador del préstamo
-      const formattedLoans = loans.map(loan => {
-        return {
-          ...loan,
-          userId: loan.userId, // ID del usuario creador del préstamo
-          creatorUserId: loan.userId // Alias explícito para mayor claridad
-        };
-      });
-
-      this.logger.log(`Obtenidos ${formattedLoans.length} préstamos aprobados pendientes de desembolso de un total de ${totalLoans}`);
-
-      return {
-        data: formattedLoans,
-        total: totalLoans
-      };
-    } catch (error) {
-      this.logger.error('Error al obtener préstamos pendientes de desembolso:', error);
-      throw new BadRequestException(`Error al obtener las solicitudes de préstamo pendientes de desembolso: ${error.message}`);
-    }
+    return { data, total };
   }
+
 
   // Método para eliminar una solicitud de préstamo
   async delete(id: string): Promise<LoanApplication> {
