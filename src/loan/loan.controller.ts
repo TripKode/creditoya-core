@@ -33,11 +33,23 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { FileFieldsInterceptor, FileInterceptor } from '@nestjs/platform-express';
 import { CombinedAuthGuard } from 'src/auth/guards/combined-auth.guard';
+import { LoanDisbursementService } from './services/disbursed.service';
+import { QueryService } from './services/query.service';
+import { LoanManagementService } from './services/loan-managment.service';
+import { StatusService } from './services/status.service';
+import { LoanDocumentService } from './services/document.service';
 
 @Controller('loans')
 export class LoanController {
   private logger = new Logger(LoanController.name);
-  constructor(private readonly loanService: LoanService) { }
+  constructor(
+    private readonly loan: LoanService,
+    private readonly loanDisburse: LoanDisbursementService,
+    private readonly loanQuery: QueryService,
+    private readonly loanManagment: LoanManagementService,
+    private readonly loanStatus: StatusService,
+    private readonly loanDocument: LoanDocumentService
+  ) { }
 
   @UseGuards(ClientAuthGuard)
   @Post(":userId")
@@ -75,7 +87,7 @@ export class LoanController {
     }
 
     // Convert undefined to null to match the DTO expectations
-    return this.loanService.preCreate({
+    return this.loan.preCreate({
       fisrt_flyer: files.fisrt_flyer?.[0] || null,  // Changed to match DTO
       second_flyer: files.second_flyer?.[0] || null,
       third_flyer: files.third_flyer?.[0] || null,
@@ -107,7 +119,7 @@ export class LoanController {
       throw new HttpException('No autorizado', HttpStatus.FORBIDDEN);
     }
 
-    return this.loanService.verifyPreLoan(token, preId);
+    return this.loan.verifyPreLoan(token, preId);
   }
 
   @UseGuards(IntranetAuthGuard)
@@ -115,9 +127,8 @@ export class LoanController {
   async DisburseLoan(
     @Param('loanId', ParseUUIDPipe) loanId: string,
   ) {
-    return this.loanService.disburseLoan(loanId);
+    return this.loanDisburse.disburseLoan(loanId);
   }
-
 
   @UseGuards(IntranetAuthGuard)
   @Get()
@@ -132,7 +143,7 @@ export class LoanController {
       throw new BadRequestException('orderBy debe ser "asc" o "desc"');
     }
 
-    return this.loanService.getAll(page, pageSize, searchTerm, orderBy, filterByAmount);
+    return this.loanQuery.getAll(page, pageSize, searchTerm, orderBy, filterByAmount);
   }
 
   // Solo personal de intranet puede ver préstamos pendientes
@@ -142,7 +153,7 @@ export class LoanController {
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
     @Query('pageSize', new DefaultValuePipe(5), ParseIntPipe) pageSize: number,
   ) {
-    return this.loanService.getPendingLoans(page, pageSize);
+    return this.loanQuery.getPendingLoans(page, pageSize);
   }
 
   // Solo personal de intranet puede ver préstamos aprobados
@@ -155,7 +166,7 @@ export class LoanController {
     @Query('search') searchQuery?: string,
   ) {
     console.log(user)
-    return this.loanService.getApprovedLoans(page, pageSize, searchQuery);
+    return this.loanQuery.getApprovedLoans(page, pageSize, searchQuery);
   }
 
   @UseGuards(IntranetAuthGuard)
@@ -170,7 +181,7 @@ export class LoanController {
     const searchQuery = search?.trim() || undefined;
 
     try {
-      const { data, total } = await this.loanService.pendingLoanDisbursement(
+      const { data, total } = await this.loanQuery.pendingLoanDisbursement(
         pageNumber,
         pageSizeNumber,
         searchQuery
@@ -210,7 +221,7 @@ export class LoanController {
     @Query('pageSize', new DefaultValuePipe(5), ParseIntPipe) pageSize: number,
     @Query('search') searchQuery?: string,
   ) {
-    return this.loanService.getDeferredLoans(page, pageSize, searchQuery);
+    return this.loanQuery.getDeferredLoans(page, pageSize, searchQuery);
   }
 
   // Solo personal de intranet puede ver préstamos con nueva cantidad definida
@@ -221,7 +232,7 @@ export class LoanController {
     @Query('pageSize', new DefaultValuePipe(5), ParseIntPipe) pageSize: number,
     @Query('search') searchQuery?: string,
   ) {
-    return this.loanService.getLoansWithDefinedNewCantity(page, pageSize, searchQuery);
+    return this.loanQuery.getLoansWithDefinedNewCantity(page, pageSize, searchQuery);
   }
 
   @UseGuards(CombinedAuthGuard)
@@ -247,7 +258,7 @@ export class LoanController {
 
     try {
       console.log(loanId, userId);
-      const loan = await this.loanService.get(loanId, userId);
+      const loan = await this.loanManagment.get(loanId, userId);
       this.logger.log(`Préstamo consultado: ${loanId} para usuario: ${userId} por ${user.type}`);
       return loan;
     } catch (error) {
@@ -265,7 +276,7 @@ export class LoanController {
     if (user.type === 'client' && userId !== user.id) {
       throw new BadRequestException('No autorizado para ver este préstamo');
     }
-    const loan = await this.loanService.getLatestLoanByUserId(userId);
+    const loan = await this.loanQuery.getLatestLoanByUserId(userId);
     this.logger.log(loan);
     return loan;
   }
@@ -276,7 +287,7 @@ export class LoanController {
     @Param('client_id') clientId: string,
     @CurrentUser() user: any
   ) {
-    const loans = await this.loanService.getAllLoansByUserId(clientId);
+    const loans = await this.loanQuery.getAllLoansByUserId(clientId);
 
     // Si es un cliente, solo puede ver sus propios préstamos
     if (user.type === 'client' && loans.data.some(loan => loan.userId !== user.id)) {
@@ -298,7 +309,7 @@ export class LoanController {
       throw new BadRequestException('No autorizado para ver préstamos de otros usuarios');
     }
 
-    return this.loanService.getAllByUserId(userId);
+    return this.loanManagment.getAllByUserId(userId);
   }
 
   // Solo personal de intranet puede actualizar préstamos
@@ -309,7 +320,7 @@ export class LoanController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() updateLoanDto: UpdateLoanApplicationDto,
   ) {
-    return this.loanService.update(id, updateLoanDto);
+    return this.loanManagment.update(id, updateLoanDto);
   }
 
   // Solo personal de intranet puede cambiar el estado de préstamos
@@ -320,7 +331,7 @@ export class LoanController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() changeStatusDto: ChangeLoanStatusDto,
   ) {
-    return this.loanService.changeStatus(id, changeStatusDto);
+    return this.loanStatus.changeStatus(id, changeStatusDto);
   }
 
   // Solo personal de intranet puede rechazar préstamos
@@ -331,7 +342,7 @@ export class LoanController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body('reason') reason: string,
   ) {
-    return this.loanService.changeReject(id, reason);
+    return this.loanStatus.changeReject(id, reason);
   }
 
   // Solo personal de intranet puede asignar empleados a préstamos
@@ -348,7 +359,7 @@ export class LoanController {
       throw new BadRequestException('No autorizado para asignar a otros empleados');
     }
 
-    return this.loanService.fillEmployeeId(id, employeeId);
+    return this.loanStatus.fillEmployeeId(id, employeeId);
   }
 
   // Los clientes pueden responder a ofertas de nueva cantidad
@@ -360,13 +371,13 @@ export class LoanController {
     @CurrentUser() user: any
   ) {
     // Verificar que el préstamo pertenece al cliente
-    const loan = await this.loanService.get(id, user.id);
+    const loan = await this.loanManagment.get(id, user.id);
 
     if (user.type === 'client' && loan.userId !== user.id) {
       throw new BadRequestException('No autorizado para responder a este préstamo');
     }
 
-    return this.loanService.respondToNewCantity(id, accept);
+    return this.loanStatus.respondToNewCantity(id, accept);
   }
 
   // Solo administradores pueden eliminar préstamos
@@ -374,7 +385,7 @@ export class LoanController {
   @Roles('admin')
   @Delete(':id')
   async remove(@Param('id', ParseUUIDPipe) id: string) {
-    return this.loanService.delete(id);
+    return this.loanManagment.delete(id);
   }
 
   @UseGuards(ClientAuthGuard)
@@ -398,14 +409,14 @@ export class LoanController {
 
     // Verificar que el préstamo pertenece al usuario autenticado
     try {
-      const loan = await this.loanService.get(loanId, user.id);
+      const loan = await this.loanManagment.get(loanId, user.id);
 
       if (user.type === 'client' && loan.userId !== user.id) {
         throw new ForbiddenException('No autorizado para actualizar este préstamo');
       }
 
       // Llamar al servicio para subir el documento rechazado
-      return this.loanService.uploadRejectedDocument(loanId, documentType, file);
+      return this.loanDocument.uploadRejectedDocument(loanId, documentType, file);
     } catch (error) {
       this.logger.error(`Error al subir documento rechazado: ${error.message}`, error.stack);
       if (error instanceof NotFoundException || error instanceof BadRequestException || error instanceof ForbiddenException) {

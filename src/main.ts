@@ -1,9 +1,11 @@
-// main.ts
 import { bootstrap } from "handlers/main/boostrap";
-import { LoggerService } from "./common/logger/logger.service";
+import { LoggerService } from "./logger/logger.service";
+import { HttpTransportService } from "./logger/service/http-transport.service";
+import { ApplicationLoggerService } from "./logger/service/application.service";
 
-// Crear instancia del logger principal
-const logger = new LoggerService('MainProcess');
+const httpTransport = new HttpTransportService();
+const logger = new LoggerService(httpTransport);
+const applicationLog = new ApplicationLoggerService(logger, httpTransport);
 
 // Función para obtener la configuración del puerto según entorno
 function getPortConfig() {
@@ -23,7 +25,7 @@ function getPortConfig() {
 // Manejo más agresivo de señales para asegurar que libere el puerto
 process.on('SIGINT', async () => {
   const config = getPortConfig();
-  logger.logSignalReceived('SIGINT', config);
+  applicationLog.logSignalReceived('SIGINT', config);
 
   // Log adicional en consola para mantener compatibilidad
   console.log('\n📴 === RECIBIDA SEÑAL SIGINT ===');
@@ -35,7 +37,7 @@ process.on('SIGINT', async () => {
 
 process.on('SIGTERM', async () => {
   const config = getPortConfig();
-  logger.logSignalReceived('SIGTERM', config);
+  applicationLog.logSignalReceived('SIGTERM', config);
 
   console.log('\n📴 === RECIBIDA SEÑAL SIGTERM ===');
   console.log(`🔄 Liberando puerto ${config.port} en ${config.host} y cerrando aplicación...`);
@@ -46,7 +48,7 @@ process.on('SIGTERM', async () => {
 
 process.on('SIGUSR1', async () => {
   const config = getPortConfig();
-  logger.logSignalReceived('SIGUSR1', config);
+  applicationLog.logSignalReceived('SIGUSR1', config);
 
   console.log('\n📴 === RECIBIDA SEÑAL SIGUSR1 ===');
   console.log(`🔄 Liberando puerto ${config.port} en ${config.host} y cerrando aplicación...`);
@@ -57,7 +59,7 @@ process.on('SIGUSR1', async () => {
 
 process.on('SIGUSR2', async () => {
   const config = getPortConfig();
-  logger.logSignalReceived('SIGUSR2', config);
+  applicationLog.logSignalReceived('SIGUSR2', config);
 
   console.log('\n📴 === RECIBIDA SEÑAL SIGUSR2 ===');
   console.log(`🔄 Liberando puerto ${config.port} en ${config.host} y cerrando aplicación...`);
@@ -70,7 +72,7 @@ process.on('SIGUSR2', async () => {
 process.on('uncaughtException', (error) => {
   const config = getPortConfig();
 
-  logger.logFatalError(error, 'UncaughtException', {
+  applicationLog.logFatalError(error, 'UncaughtException', {
     config,
     processInfo: {
       cwd: process.cwd(),
@@ -91,7 +93,7 @@ process.on('uncaughtException', (error) => {
 process.on('unhandledRejection', (reason, promise) => {
   const config = getPortConfig();
 
-  logger.logFatalError(reason, 'UnhandledRejection', {
+  applicationLog.logFatalError(reason, 'UnhandledRejection', {
     config,
     promise: promise.toString(),
     processInfo: {
@@ -129,7 +131,7 @@ process.on('SIGTERM', () => {
 // Log inicial de configuración
 const config = getPortConfig();
 
-logger.logConfigurationStart(config);
+applicationLog.logConfigurationStart(config);
 
 // Mantener logs de consola para compatibilidad visual
 console.log('\n🚀 === CONFIGURACIÓN INICIAL ===');
@@ -160,13 +162,13 @@ if (config.nodeEnv === 'development') {
   console.log(`⚠️ NODE_ENV personalizado: ${config.nodeEnv} (usando config de desarrollo)`);
 }
 
-logger.logBootstrapStart();
+applicationLog.logBootstrapStart();
 console.log('\n🏁 === INICIANDO BOOTSTRAP ===');
 
 bootstrap().catch((error) => {
   const config = getPortConfig();
 
-  logger.logFatalError(error, 'Bootstrap', {
+  applicationLog.logFatalError(error, 'Bootstrap', {
     config,
     debugInfo: {
       cwd: process.cwd(),

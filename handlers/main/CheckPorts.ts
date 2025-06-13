@@ -1,9 +1,11 @@
-// handlers/main/CheckPorts.ts
 import * as net from 'net';
-import { LoggerService } from '../../src/common/logger/logger.service';
+import { LoggerService } from 'src/logger/logger.service';
+import { ApplicationLoggerService } from 'src/logger/service/application.service';
+import { HttpTransportService } from 'src/logger/service/http-transport.service';
 
-// Crear instancia del logger para este módulo
-const logger = new LoggerService('PortChecker');
+const httpTransport = new HttpTransportService();
+const logger = new LoggerService(httpTransport);
+const applicationLog = new ApplicationLoggerService(logger, httpTransport);
 
 /**
  * Función para verificar si un puerto está realmente ocupado
@@ -25,7 +27,7 @@ export function checkPortStatus(port: number, host: string = '127.0.0.1'): Promi
     });
 
     socket.on('connect', () => {
-      logger.logPortCheck(port, host, true);
+      applicationLog.logPortCheck(port, host, true);
       socket.destroy();
       resolve(true); // Puerto ocupado
     });
