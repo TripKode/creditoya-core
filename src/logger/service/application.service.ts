@@ -47,7 +47,10 @@ export class ApplicationLoggerService {
             workingDirectory: process.cwd(),
             nodeVersion: process.version,
             httpTransportEnabled: this.httpService.config.httpTransportEnabled,
-            httpTransportEndpoint: this.httpService.config.errorEndpoint
+            httpTransportEndpoint: this.httpService.config.logEndpoint,
+            httpTransportLevels: this.httpService.config.enabledLevels,
+            httpTransportBatchSize: this.httpService.config.batchSize,
+            httpTransportFlushInterval: this.httpService.config.flushInterval
         });
     }
 

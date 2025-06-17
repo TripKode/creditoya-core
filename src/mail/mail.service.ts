@@ -18,6 +18,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as util from 'util';
 import * as stream from 'stream';
+import { generateCustomEmail } from 'templatesEmails/generates/GenerateCusmosEmail';
 
 // Tipo para la cola de correos con Resend
 interface EmailQueueItem {
@@ -635,11 +636,114 @@ export class MailService {
     }
   }
 
+  /**
+   * Envía un correo personalizado con archivos adjuntos opcionales
+   */
+  async sendCustomEmail(data: {
+    email: string;
+    subject: string;
+    message: string;
+    recipientName?: string;
+    priority?: 'high' | 'normal' | 'low';
+    files?: Express.Multer.File[];
+  }): Promise<void> {
+    try {
+      if (!data.email || !data.subject || !data.message) {
+        throw new Error('Missing required fields for custom email');
+      }
+
+      const {
+        email,
+        subject,
+        message,
+        recipientName,
+        priority,
+        files,
+      } = data
+
+      const content = generateCustomEmail({
+        subject,
+        message,
+        recipientName,
+        senderName: 'CreditoYa'
+      });
+
+      const html = await this.prepareHtmlTemplate(content);
+
+      // Preparar las opciones básicas del correo
+      const mailOptions: EmailQueueItem['options'] = {
+        from: await this.getEmailSender('default'),
+        to: email,
+        subject,
+        html: html,
+        priority: priority || 'normal',
+      };
+
+      let tempFiles: { filename: string; path: string }[] = [];
+
+      // Si hay archivos adjuntos, procesarlos
+      if (files && files.length > 0) {
+        tempFiles = await this.saveUploadedFiles(files);
+
+        if (tempFiles.length > 0) {
+          mailOptions.attachments = await this.prepareAttachments(tempFiles);
+        }
+      }
+
+      // Enviar el correo
+      this.queueEmail(mailOptions, tempFiles);
+
+      this.logger.log(`Custom email queued successfully for: ${data.email}`);
+    } catch (error) {
+      this.logger.error(`Failed to prepare custom email: ${error.message}`);
+      throw new Error(`Failed to send custom email: ${error.message}`);
+    }
+  }
+
+  /**
+   * Guarda los archivos subidos en el directorio temporal
+   */
+  private async saveUploadedFiles(files: Express.Multer.File[]): Promise<{ filename: string; path: string }[]> {
+    const tempDir = path.join(process.cwd(), 'temp');
+
+    // Asegurarse de que exista el directorio temporal
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+
+    const savedFiles: { filename: string; path: string }[] = [];
+
+    for (const file of files) {
+      try {
+        // Generar un nombre único para el archivo
+        const fileExtension = path.extname(file.originalname);
+        const baseName = path.basename(file.originalname, fileExtension);
+        const uniqueName = `${baseName}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}${fileExtension}`;
+        const filePath = path.join(tempDir, uniqueName);
+
+        // Guardar el buffer del archivo
+        fs.writeFileSync(filePath, file.buffer);
+
+        savedFiles.push({
+          filename: file.originalname, // Mantener el nombre original para el email
+          path: filePath
+        });
+
+        this.logger.debug(`File saved: ${file.originalname} -> ${filePath}`);
+      } catch (error) {
+        this.logger.error(`Error saving file ${file.originalname}: ${error.message}`);
+      }
+    }
+
+    return savedFiles;
+  }
+
+
   // Método para uso en pruebas y depuración
-  // async getQueueStatus(): Promise<{ queueSize: number, isProcessing: boolean }> {
-  //   return {
-  //     queueSize: this.emailQueue.length,
-  //     isProcessing: this.isProcessingQueue
-  //   };
-  // }
+  async getQueueStatus(): Promise<{ queueSize: number, isProcessing: boolean }> {
+    return {
+      queueSize: this.emailQueue.length,
+      isProcessing: this.isProcessingQueue
+    };
+  }
 }
