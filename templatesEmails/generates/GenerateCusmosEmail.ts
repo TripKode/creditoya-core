@@ -81,7 +81,7 @@ export const generateCustomEmail = ({
           font-size="14px"
           font-weight="500"
           padding="12px 30px"
-          href="https://creditoya.space/soporte"
+          href="https://creditoya.space/"
           css-class="center-align">
           Contactar Soporte
         </mj-button>
@@ -93,8 +93,7 @@ export const generateCustomEmail = ({
     <mj-section background-color="#ffffff" padding="20px 20px 0px 20px">
       <mj-column>
         <mj-text font-size="14px" color="#555555">
-          Cordialmente,<br/>
-          <strong>${senderName}</strong><br/>
+          Cordialmente, <strong>${senderName}</strong><br/>
           <span style="color: #888888;">Equipo de Atención al Cliente</span>
         </mj-text>
       </mj-column>
