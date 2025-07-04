@@ -31,31 +31,25 @@ export class LoggerService {
       mkdir: true
     });
 
-    // Crear stream personalizado para HTTP transport (ahora para todos los logs)
-    const httpStream = this.httpTransport.createHttpStream();
-
     // Configurar streams múltiples
-    const streams: pino.StreamEntry[] = [
-      // Stream para consola (ajustado según entorno)
-      {
-        stream: process.stdout,
-        level: isDevelopment ? 'debug' : 'info'
-      },
-      // Stream para archivo (siempre debug para guardar todo)
-      {
-        stream: this.fileStream,
-        level: 'debug'
-      }
-    ];
+    const streams: pino.StreamEntry[] = [];
 
-    // Agregar stream HTTP si está habilitado (para todos los logs configurados)
+    // Stream para archivo (siempre debug para guardar todo)
+    streams.push({
+      stream: this.fileStream,
+      level: 'debug'
+    });
+
+    // Stream HTTP si está habilitado
     if (this.httpTransport.config.httpTransportEnabled) {
+      const httpStream = this.httpTransport.createHttpStream();
       streams.push({
         stream: httpStream,
         level: (this.httpTransport.config.httpTransportLevel || 'debug') as pino.Level
       });
     }
 
+    // Configurar el logger principal
     this.logger = pino({
       name: 'nestjs-app',
       level: process.env.LOG_LEVEL || (isProduction ? 'info' : 'debug'),

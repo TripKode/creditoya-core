@@ -5,135 +5,277 @@ import * as bcrypt from 'bcrypt';
 import { User, UsersIntranet } from '@prisma/client';
 import { ClientService } from 'src/client/client.service';
 import { Response } from 'express';
+import { LoggerService } from 'src/logger/logger.service';
 
 @Injectable()
 export class AuthService {
+  private readonly logger: LoggerService;
+
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
-    private clientService: ClientService
-  ) { }
+    private clientService: ClientService,
+    loggerService: LoggerService
+  ) {
+    // Crear un logger específico para AuthService
+    this.logger = loggerService.child('AuthService');
+  }
 
   // Para usuarios normales (clientes)
   async validateClient(email: string, password: string): Promise<User> {
-    // Buscamos en la base de datos
-    const user = await this.prisma.user.findUnique({
-      where: { email },
+    this.logger.debug('Iniciando validación de cliente', { 
+      email,
+      timestamp: new Date().toISOString()
     });
 
-    if (!user) {
-      throw new UnauthorizedException('Credenciales inválidas');
-    }
+    try {
+      // Buscamos en la base de datos
+      const user = await this.prisma.user.findUnique({
+        where: { email },
+      });
 
-    const isPasswordValid = await bcrypt.compare(password, user.password);
-    if (!isPasswordValid) {
-      throw new UnauthorizedException('Credenciales inválidas');
-    }
+      if (!user) {
+        this.logger.warn('Intento de login con email no registrado', { 
+          email,
+          reason: 'user_not_found'
+        });
+        throw new UnauthorizedException('Credenciales inválidas');
+      }
 
-    if (user.isBan) {
-      throw new UnauthorizedException('Su cuenta ha sido suspendida');
-    }
+      const isPasswordValid = await bcrypt.compare(password, user.password);
+      if (!isPasswordValid) {
+        this.logger.warn('Intento de login con contraseña incorrecta', { 
+          email,
+          userId: user.id,
+          reason: 'invalid_password'
+        });
+        throw new UnauthorizedException('Credenciales inválidas');
+      }
 
-    return user;
+      if (user.isBan) {
+        this.logger.warn('Intento de login de usuario suspendido', { 
+          email,
+          userId: user.id,
+          reason: 'user_banned'
+        });
+        throw new UnauthorizedException('Su cuenta ha sido suspendida');
+      }
+
+      this.logger.info('Cliente validado exitosamente', { 
+        userId: user.id,
+        email: user.email,
+        userNames: `${user.names} ${user.firstLastName}`
+      });
+
+      return user;
+    } catch (error) {
+      if (error instanceof UnauthorizedException) {
+        throw error;
+      }
+      
+      this.logger.error('Error durante validación de cliente', error, { 
+        email,
+        operation: 'validateClient'
+      });
+      throw new UnauthorizedException('Error interno del servidor');
+    }
   }
 
   // Para usuarios de intranet
   async validateIntranetUser(email: string, password: string): Promise<UsersIntranet> {
-    // Buscamos en la base de datos
-    const user = await this.prisma.usersIntranet.findUnique({
-      where: { email },
+    this.logger.debug('Iniciando validación de usuario intranet', { 
+      email,
+      timestamp: new Date().toISOString()
     });
 
-    if (!user) {
-      throw new UnauthorizedException('Credenciales inválidas');
-    }
+    try {
+      // Buscamos en la base de datos
+      const user = await this.prisma.usersIntranet.findUnique({
+        where: { email },
+      });
 
-    const isPasswordValid = await bcrypt.compare(password, user.password);
-    if (!isPasswordValid) {
-      throw new UnauthorizedException('Credenciales inválidas');
-    }
+      if (!user) {
+        this.logger.warn('Intento de login intranet con email no registrado', { 
+          email,
+          reason: 'user_not_found'
+        });
+        throw new UnauthorizedException('Credenciales inválidas');
+      }
 
-    if (!user.isActive) {
-      throw new UnauthorizedException('Su cuenta no está activa');
-    }
+      const isPasswordValid = await bcrypt.compare(password, user.password);
+      if (!isPasswordValid) {
+        this.logger.warn('Intento de login intranet con contraseña incorrecta', { 
+          email,
+          userId: user.id,
+          reason: 'invalid_password'
+        });
+        throw new UnauthorizedException('Credenciales inválidas');
+      }
 
-    return user;
+      if (!user.isActive) {
+        this.logger.warn('Intento de login de usuario intranet inactivo', { 
+          email,
+          userId: user.id,
+          reason: 'user_inactive'
+        });
+        throw new UnauthorizedException('Su cuenta no está activa');
+      }
+
+      this.logger.info('Usuario intranet validado exitosamente', { 
+        userId: user.id,
+        email: user.email,
+        rol: user.rol,
+        userName: `${user.name} ${user.lastNames}`
+      });
+
+      return user;
+    } catch (error) {
+      if (error instanceof UnauthorizedException) {
+        throw error;
+      }
+      
+      this.logger.error('Error durante validación de usuario intranet', error, { 
+        email,
+        operation: 'validateIntranetUser'
+      });
+      throw new UnauthorizedException('Error interno del servidor');
+    }
   }
 
   async loginClient(user: User, response?: any) {
-    const payload = {
-      sub: user.id,
-      email: user.email,
-      type: 'client'
-    };
+    this.logger.debug('Iniciando proceso de login para cliente', { 
+      userId: user.id,
+      email: user.email
+    });
 
-    const token = this.jwtService.sign(payload);
-
-    // Set cookie with improved error handling
-    if (response && typeof response.cookie === 'function') {
-      try {
-        response.cookie('creditoya_token', token, {
-          httpOnly: true,
-          secure: process.env.NODE_ENV === 'production',
-          maxAge: 86400000, // 24 hours
-          path: '/',
-          sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
-        });
-      } catch (error) {
-        console.error('Error setting client cookie:', error);
-      }
-    }
-
-    return {
-      user: {
-        id: user.id,
+    try {
+      const payload = {
+        sub: user.id,
         email: user.email,
-        names: user.names,
-        firstLastName: user.firstLastName,
-        secondLastName: user.secondLastName,
-        avatar: user.avatar,
-      },
-      accessToken: token,
-    };
+        type: 'client'
+      };
+
+      const token = this.jwtService.sign(payload);
+
+      // Set cookie with improved error handling
+      if (response && typeof response.cookie === 'function') {
+        try {
+          response.cookie('creditoya_token', token, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            maxAge: 86400000, // 24 hours
+            path: '/',
+            sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
+          });
+          
+          this.logger.debug('Cookie de cliente establecida correctamente', { 
+            userId: user.id,
+            cookieName: 'creditoya_token'
+          });
+        } catch (error) {
+          this.logger.error('Error estableciendo cookie de cliente', error, { 
+            userId: user.id,
+            cookieName: 'creditoya_token'
+          });
+        }
+      }
+
+      this.logger.info('Login de cliente exitoso', { 
+        userId: user.id,
+        email: user.email,
+        userNames: `${user.names} ${user.firstLastName}`,
+        tokenGenerated: true
+      });
+
+      return {
+        user: {
+          id: user.id,
+          email: user.email,
+          names: user.names,
+          firstLastName: user.firstLastName,
+          secondLastName: user.secondLastName,
+          avatar: user.avatar,
+        },
+        accessToken: token,
+      };
+    } catch (error) {
+      this.logger.error('Error durante login de cliente', error, { 
+        userId: user.id,
+        email: user.email,
+        operation: 'loginClient'
+      });
+      throw error;
+    }
   }
 
   // Generar token para usuarios de intranet
   async loginIntranet(user: UsersIntranet, response?: any) {
-    const payload = {
-      sub: user.id,
+    this.logger.debug('Iniciando proceso de login para usuario intranet', { 
+      userId: user.id,
       email: user.email,
-      rol: user.rol,
-      type: 'intranet'
-    };
+      rol: user.rol
+    });
 
-    const token = this.jwtService.sign(payload);
-
-    // Set cookie consistently with client login
-    if (response && typeof response.cookie === 'function') {
-      try {
-        response.cookie('intranet_token', token, {
-          httpOnly: true,
-          secure: process.env.NODE_ENV === 'production',
-          maxAge: 86400000, // 24 hours
-          path: '/',
-          sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
-        });
-      } catch (error) {
-        console.error('Error setting intranet cookie:', error);
-      }
-    }
-
-    return {
-      user: {
-        id: user.id,
+    try {
+      const payload = {
+        sub: user.id,
         email: user.email,
-        name: user.name,
-        lastNames: user.lastNames,
-        avatar: user.avatar,
         rol: user.rol,
-      },
-      accessToken: token,
-    };
+        type: 'intranet'
+      };
+
+      const token = this.jwtService.sign(payload);
+
+      // Set cookie consistently with client login
+      if (response && typeof response.cookie === 'function') {
+        try {
+          response.cookie('intranet_token', token, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            maxAge: 86400000, // 24 hours
+            path: '/',
+            sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
+          });
+          
+          this.logger.debug('Cookie de intranet establecida correctamente', { 
+            userId: user.id,
+            cookieName: 'intranet_token'
+          });
+        } catch (error) {
+          this.logger.error('Error estableciendo cookie de intranet', error, { 
+            userId: user.id,
+            cookieName: 'intranet_token'
+          });
+        }
+      }
+
+      this.logger.info('Login de intranet exitoso', { 
+        userId: user.id,
+        email: user.email,
+        rol: user.rol,
+        userName: `${user.name} ${user.lastNames}`,
+        tokenGenerated: true
+      });
+
+      return {
+        user: {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          lastNames: user.lastNames,
+          avatar: user.avatar,
+          rol: user.rol,
+        },
+        accessToken: token,
+      };
+    } catch (error) {
+      this.logger.error('Error durante login de intranet', error, { 
+        userId: user.id,
+        email: user.email,
+        operation: 'loginIntranet'
+      });
+      throw error;
+    }
   }
 
   // Revocar token (logout)
@@ -143,22 +285,49 @@ export class AuthService {
     cookieApp: 'creditoya_token' | 'intranet_token',
     response: Response
   ): Promise<void> {
-    // Token revocation would need to be implemented differently without Redis
-    // Consider using a database table to track revoked tokens or implementing
-    // a shorter token expiration with refresh tokens
-    // Clear cookie
-    response.clearCookie(cookieApp, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      path: '/',
-      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
+    this.logger.debug('Iniciando revocación de token', { 
+      userId,
+      userType,
+      cookieApp
     });
 
-    console.log(`Token revoked for ${userType} with ID ${userId}`);
+    try {
+      // Token revocation would need to be implemented differently without Redis
+      // Consider using a database table to track revoked tokens or implementing
+      // a shorter token expiration with refresh tokens
+      
+      // Clear cookie
+      response.clearCookie(cookieApp, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        path: '/',
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
+      });
+
+      this.logger.info('Token revocado exitosamente', { 
+        userId,
+        userType,
+        cookieApp,
+        action: 'logout'
+      });
+    } catch (error) {
+      this.logger.error('Error revocando token', error, { 
+        userId,
+        userType,
+        cookieApp,
+        operation: 'revokeToken'
+      });
+      throw error;
+    }
   }
 
   // Verificar si un token está en la lista negra
   async isTokenRevoked(userId: string, userType: 'client' | 'intranet'): Promise<boolean> {
+    this.logger.debug('Verificando si token está revocado', { 
+      userId,
+      userType
+    });
+
     // Without Redis, you would need to implement this differently
     // For now, assume tokens are always valid (not revoked)
     return false;
@@ -166,55 +335,143 @@ export class AuthService {
 
   // Hash de contraseñas para registro
   async hashPassword(password: string): Promise<string> {
-    const salt = await bcrypt.genSalt();
-    return bcrypt.hash(password, salt);
+    this.logger.debug('Generando hash de contraseña');
+    
+    try {
+      const salt = await bcrypt.genSalt();
+      const hashedPassword = await bcrypt.hash(password, salt);
+      
+      this.logger.debug('Hash de contraseña generado exitosamente');
+      return hashedPassword;
+    } catch (error) {
+      this.logger.error('Error generando hash de contraseña', error);
+      throw error;
+    }
   }
 
   // Obtener perfil de cliente
   async getClientProfile(userId: string) {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      include: {
-        LoanApplication: true,
+    this.logger.debug('Obteniendo perfil de cliente', { userId });
+
+    try {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        include: {
+          LoanApplication: true,
+        }
+      });
+
+      if (!user) {
+        this.logger.warn('Cliente no encontrado al obtener perfil', { userId });
+        throw new UnauthorizedException('Usuario no encontrado');
       }
-    });
 
-    console.log(user);
+      this.logger.info('Perfil de cliente obtenido exitosamente', { 
+        userId,
+        email: user.email,
+        userNames: `${user.names} ${user.firstLastName}`,
+        loanApplicationsCount: user.LoanApplication?.length || 0
+      });
 
-    if (!user) {
-      throw new UnauthorizedException('Usuario no encontrado');
+      return { user };
+    } catch (error) {
+      if (error instanceof UnauthorizedException) {
+        throw error;
+      }
+      
+      this.logger.error('Error obteniendo perfil de cliente', error, { 
+        userId,
+        operation: 'getClientProfile'
+      });
+      throw error;
     }
-
-    return { user };
   }
 
   // Obtener perfil de intranet
   async getIntranetProfile(userId: string) {
-    const user = await this.prisma.usersIntranet.findUnique({
-      where: { id: userId },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        lastNames: true,
-        avatar: true,
-        rol: true,
-        isActive: true,
-        phone: true
-        // otros campos que quieras incluir pero NO la contraseña
+    this.logger.debug('Obteniendo perfil de usuario intranet', { userId });
+
+    try {
+      const user = await this.prisma.usersIntranet.findUnique({
+        where: { id: userId },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          lastNames: true,
+          avatar: true,
+          rol: true,
+          isActive: true,
+          phone: true
+          // otros campos que quieras incluir pero NO la contraseña
+        }
+      });
+
+      if (!user) {
+        this.logger.warn('Usuario intranet no encontrado al obtener perfil', { userId });
+        throw new UnauthorizedException('Usuario no encontrado');
       }
-    });
 
-    if (!user) {
-      throw new UnauthorizedException('Usuario no encontrado');
+      this.logger.info('Perfil de usuario intranet obtenido exitosamente', { 
+        userId,
+        email: user.email,
+        rol: user.rol,
+        userName: `${user.name} ${user.lastNames}`,
+        isActive: user.isActive
+      });
+
+      return { user };
+    } catch (error) {
+      if (error instanceof UnauthorizedException) {
+        throw error;
+      }
+      
+      this.logger.error('Error obteniendo perfil de usuario intranet', error, { 
+        userId,
+        operation: 'getIntranetProfile'
+      });
+      throw error;
     }
-
-    return { user };
   }
 
   async registerClient(data: User) {
-    const newClient = await this.clientService.create(data);
-    if (!newClient) throw new Error('Error al crear cliente');
-    return await this.loginClient(newClient);
+    this.logger.debug('Iniciando registro de cliente', { 
+      email: data.email,
+      names: data.names
+    });
+
+    try {
+      const newClient = await this.clientService.create(data);
+      
+      if (!newClient) {
+        this.logger.error('Error al crear cliente en clientService', null, { 
+          email: data.email,
+          operation: 'registerClient'
+        });
+        throw new Error('Error al crear cliente');
+      }
+
+      this.logger.info('Cliente registrado exitosamente', { 
+        userId: newClient.id,
+        email: newClient.email,
+        userNames: `${newClient.names} ${newClient.firstLastName}`
+      });
+
+      // Realizar login automático después del registro
+      const loginResult = await this.loginClient(newClient);
+      
+      this.logger.info('Login automático post-registro exitoso', { 
+        userId: newClient.id,
+        email: newClient.email
+      });
+
+      return loginResult;
+    } catch (error) {
+      this.logger.error('Error durante registro de cliente', error, { 
+        email: data.email,
+        operation: 'registerClient'
+      });
+      throw error;
+    }
   }
 }
