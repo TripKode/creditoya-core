@@ -9,8 +9,11 @@ export class DevService {
    * Elimina los campos que están causando conflictos de tipo de datos
    */
   async cleanupUserFields(): Promise<{ success: boolean; message: string; affectedUsers: number }> {
+    // Este servicio parece ser para tareas de desarrollo y migraciones.
+    // Los console.log aquí pueden ser intencionales para feedback directo en consola
+    // durante la ejecución de estas tareas. Se mantendrán por ahora.
     try {
-      console.log('Iniciando limpieza de campos problemáticos en User...');
+      console.log('[DEV_TASK] Iniciando limpieza de campos problemáticos en User...');
 
       // Primero, contar cuántos usuarios serán afectados
       const totalUsers = await this.prisma.$runCommandRaw({
@@ -18,7 +21,7 @@ export class DevService {
         query: {}
       });
 
-      console.log(`Total de usuarios a procesar: ${totalUsers.n}`);
+      console.log(`[DEV_TASK] Total de usuarios a procesar: ${totalUsers.n}`);
 
       // Eliminar los campos problemáticos usando $unset
       const result = await this.prisma.$runCommandRaw({
@@ -41,7 +44,7 @@ export class DevService {
         ]
       });
 
-      console.log('Resultado de la operación:', result);
+      console.log('[DEV_TASK] Resultado de la operación:', result);
 
       // Verificar que los campos fueron eliminados
       const verification = await this.prisma.$runCommandRaw({
@@ -70,7 +73,7 @@ export class DevService {
       }
 
       if (remainingFieldsCount === 0) {
-        const message = `✅ Limpieza completada exitosamente. ${totalUsers.n} usuarios procesados.`;
+        const message = `✅ [DEV_TASK] Limpieza completada exitosamente. ${totalUsers.n} usuarios procesados.`;
         console.log(message);
 
         return {
@@ -79,7 +82,7 @@ export class DevService {
           affectedUsers: typeof totalUsers.n === 'number' ? totalUsers.n : 0
         };
       } else {
-        const message = `⚠️ Limpieza parcial. Algunos campos aún existen.`;
+        const message = `⚠️ [DEV_TASK] Limpieza parcial. Algunos campos aún existen.`;
         console.log(message);
 
         return {
@@ -90,7 +93,7 @@ export class DevService {
       }
 
     } catch (error) {
-      console.error('Error durante la limpieza de campos:', error);
+      console.error('[DEV_TASK] Error durante la limpieza de campos:', error);
 
       return {
         success: false,
@@ -124,7 +127,7 @@ export class DevService {
 
     try {
       for (const field of fieldsToRemove) {
-        console.log(`Eliminando campo: ${field}`);
+        console.log(`[DEV_TASK] Eliminando campo: ${field}`);
 
         // Contar documentos que tienen este campo
         const countBefore = await this.prisma.$runCommandRaw({
@@ -159,7 +162,7 @@ export class DevService {
         };
 
         results.push(fieldResult);
-        console.log(`Campo ${field}: ${countBefore.n} → ${countAfter.n} documentos`);
+        console.log(`[DEV_TASK] Campo ${field}: ${countBefore.n} → ${countAfter.n} documentos`);
       }
 
       const allSuccess = results.every(r => r.success);
@@ -170,7 +173,7 @@ export class DevService {
       };
 
     } catch (error) {
-      console.error('Error en limpieza paso a paso:', error);
+      console.error('[DEV_TASK] Error en limpieza paso a paso:', error);
       return {
         success: false,
         details: results
@@ -220,7 +223,7 @@ export class DevService {
       };
 
     } catch (error) {
-      console.error('Error verificando estado de campos:', error);
+      console.error('[DEV_TASK] Error verificando estado de campos:', error);
       return { error: error.message };
     }
   }
@@ -231,7 +234,7 @@ export class DevService {
  */
   async fixUserNullFields(): Promise<{ success: boolean; message: string; details: any }> {
     try {
-      console.log('Iniciando corrección de campos null en User...');
+      console.log('[DEV_TASK] Iniciando corrección de campos null en User...');
 
       // Primero verificar cuántos usuarios tienen campos null
       const usersWithNullFields = await this.prisma.$runCommandRaw({
@@ -256,12 +259,12 @@ export class DevService {
         affectedCount = (usersWithNullFields.cursor as any).firstBatch.length;
       }
 
-      console.log(`Usuarios con campos null encontrados: ${affectedCount}`);
+      console.log(`[DEV_TASK] Usuarios con campos null encontrados: ${affectedCount}`);
 
       if (affectedCount === 0) {
         return {
           success: true,
-          message: 'No se encontraron usuarios con campos null',
+          message: '[DEV_TASK] No se encontraron usuarios con campos null',
           details: { affectedUsers: 0 }
         };
       }
@@ -321,8 +324,8 @@ export class DevService {
 
       const success = remainingNullFields === 0;
       const message = success
-        ? `✅ Corrección completada. ${affectedCount} usuarios corregidos.`
-        : `⚠️ Corrección parcial. ${remainingNullFields} usuarios aún tienen campos null.`;
+        ? `✅ [DEV_TASK] Corrección completada. ${affectedCount} usuarios corregidos.`
+        : `⚠️ [DEV_TASK] Corrección parcial. ${remainingNullFields} usuarios aún tienen campos null.`;
 
       console.log(message);
 
@@ -337,10 +340,10 @@ export class DevService {
       };
 
     } catch (error) {
-      console.error('Error corrigiendo campos null:', error);
+      console.error('[DEV_TASK] Error corrigiendo campos null:', error);
       return {
         success: false,
-        message: `❌ Error durante la corrección: ${error.message}`,
+        message: `❌ [DEV_TASK] Error durante la corrección: ${error.message}`,
         details: { error: error.message }
       };
     }
@@ -352,7 +355,7 @@ export class DevService {
  */
   async convertPhoneFields(): Promise<{ success: boolean; message: string; details: any }> {
     try {
-      console.log('Iniciando conversión de campos phone de string a string[]...');
+      console.log('[DEV_TASK] Iniciando conversión de campos phone de string a string[]...');
 
       const results = {
         preLoanApplication: {
@@ -370,7 +373,7 @@ export class DevService {
       };
 
       // Convertir phone en PreLoanApplication
-      console.log('Procesando PreLoanApplication...');
+      console.log('[DEV_TASK] Procesando PreLoanApplication...');
 
       // Buscar documentos con phone como string
       const preLoanWithStringPhone = await this.prisma.$runCommandRaw({
@@ -402,7 +405,7 @@ export class DevService {
 
             results.preLoanApplication.converted++;
           } catch (error) {
-            console.error(`Error convirtiendo PreLoanApplication ${doc._id}:`, error);
+            console.error(`[DEV_TASK] Error convirtiendo PreLoanApplication ${doc._id}:`, error);
             results.preLoanApplication.errors++;
           }
         }
@@ -423,7 +426,7 @@ export class DevService {
       results.preLoanApplication.noPhoneField = typeof preLoanWithoutPhone.n === 'number' ? preLoanWithoutPhone.n : 0;
 
       // Convertir phone en LoanApplication
-      console.log('Procesando LoanApplication...');
+      console.log('[DEV_TASK] Procesando LoanApplication...');
 
       // Buscar documentos con phone como string
       const loanWithStringPhone = await this.prisma.$runCommandRaw({
@@ -455,7 +458,7 @@ export class DevService {
 
             results.loanApplication.converted++;
           } catch (error) {
-            console.error(`Error convirtiendo LoanApplication ${doc._id}:`, error);
+            console.error(`[DEV_TASK] Error convirtiendo LoanApplication ${doc._id}:`, error);
             results.loanApplication.errors++;
           }
         }
@@ -480,11 +483,11 @@ export class DevService {
 
       const success = totalErrors === 0;
       const message = success
-        ? `✅ Conversión completada exitosamente. ${totalConverted} campos phone convertidos.`
-        : `⚠️ Conversión completada con ${totalErrors} errores. ${totalConverted} campos convertidos.`;
+        ? `✅ [DEV_TASK] Conversión completada exitosamente. ${totalConverted} campos phone convertidos.`
+        : `⚠️ [DEV_TASK] Conversión completada con ${totalErrors} errores. ${totalConverted} campos convertidos.`;
 
       console.log(message);
-      console.log('Detalles:', results);
+      console.log('[DEV_TASK] Detalles:', results);
 
       return {
         success,
@@ -493,10 +496,10 @@ export class DevService {
       };
 
     } catch (error) {
-      console.error('Error durante la conversión de campos phone:', error);
+      console.error('[DEV_TASK] Error durante la conversión de campos phone:', error);
       return {
         success: false,
-        message: `❌ Error durante la conversión: ${error.message}`,
+        message: `❌ [DEV_TASK] Error durante la conversión: ${error.message}`,
         details: null
       };
     }
@@ -599,7 +602,7 @@ export class DevService {
       };
 
     } catch (error) {
-      console.error('Error verificando estado de campos phone:', error);
+      console.error('[DEV_TASK] Error verificando estado de campos phone:', error);
       return { error: error.message };
     }
   }

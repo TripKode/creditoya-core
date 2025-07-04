@@ -33,15 +33,15 @@ export class HttpTransportService {
             flushInterval: parseInt(process.env.HTTP_TRANSPORT_FLUSH_INTERVAL || '5000')
         };
 
-        console.log('[HttpTransportService] Configuración cargada:', {
-            enabled: this.config.httpTransportEnabled,
-            endpoint: this.config.logEndpoint,
-            level: this.config.httpTransportLevel,
-            enabledLevels: this.config.enabledLevels,
-            timeout: this.config.timeout,
-            batchSize: this.config.batchSize,
-            flushInterval: this.config.flushInterval
-        });
+        // console.log('[HttpTransportService] Configuración cargada:', {
+        //     enabled: this.config.httpTransportEnabled,
+        //     endpoint: this.config.logEndpoint,
+        //     level: this.config.httpTransportLevel,
+        //     enabledLevels: this.config.enabledLevels,
+        //     timeout: this.config.timeout,
+        //     batchSize: this.config.batchSize,
+        //     flushInterval: this.config.flushInterval
+        // });
 
         // Iniciar timer para flush automático
         this.startFlushTimer();
@@ -49,11 +49,11 @@ export class HttpTransportService {
 
     createHttpStream(): pino.DestinationStream {
         if (!this.config.httpTransportEnabled) {
-            console.log('[HttpTransportService] HTTP Transport deshabilitado');
+            // console.log('[HttpTransportService] HTTP Transport deshabilitado');
             return pino.destination({ dest: '/dev/null' });
         }
 
-        console.log('[HttpTransportService] Creando stream HTTP...');
+        // console.log('[HttpTransportService] Creando stream HTTP...');
 
         // Crear un stream personalizado que implemente la interfaz correcta
         const httpStream = {
@@ -110,7 +110,7 @@ export class HttpTransportService {
             // Agregar a la cola
             this.logQueue.push(payload);
 
-            console.log(`[HttpTransportService] Log agregado a cola: ${logLevel} - ${payload.message?.substring(0, 50)}...`);
+            // console.log(`[HttpTransportService] Log agregado a cola: ${logLevel} - ${payload.message?.substring(0, 50)}...`);
 
             // Si la cola alcanza el tamaño del lote, enviar inmediatamente
             if (this.logQueue.length >= this.config.batchSize) {
@@ -183,7 +183,7 @@ export class HttpTransportService {
         const logsToSend = [...this.logQueue];
         this.logQueue = [];
 
-        console.log(`[HttpTransportService] Enviando lote de ${logsToSend.length} logs...`);
+        // console.log(`[HttpTransportService] Enviando lote de ${logsToSend.length} logs...`);
         await this.sendLogsToEndpoint(logsToSend);
     }
 
@@ -201,11 +201,11 @@ export class HttpTransportService {
                 environment: process.env.NODE_ENV || 'development'
             };
 
-            console.log(`[HttpTransportService] Enviando a ${this.config.logEndpoint}:`, {
-                logCount: logs.length,
-                levels: logs.map(log => log.level),
-                sample: logs[0]?.message?.substring(0, 50)
-            });
+            // console.log(`[HttpTransportService] Enviando a ${this.config.logEndpoint}:`, {
+            //     logCount: logs.length,
+            //     levels: logs.map(log => log.level),
+            //     sample: logs[0]?.message?.substring(0, 50)
+            // });
 
             const response = await axios.post(this.config.logEndpoint, payload, {
                 timeout: this.config.timeout,
@@ -218,10 +218,10 @@ export class HttpTransportService {
                 }
             });
 
-            console.log(`[HttpTransportService] Lote de ${logs.length} logs enviado exitosamente. Status: ${response.status}`);
+            // console.log(`[HttpTransportService] Lote de ${logs.length} logs enviado exitosamente. Status: ${response.status}`);
 
         } catch (error) {
-            console.error(`[HttpTransportService] Error enviando lote (intento ${attempt}):`, {
+            console.error(`[HttpTransportService internal] Error enviando lote (intento ${attempt}):`, {
                 error: error.message,
                 endpoint: this.config.logEndpoint,
                 batchSize: logs.length,
@@ -231,13 +231,13 @@ export class HttpTransportService {
 
             // Reintentar si no hemos alcanzado el máximo de intentos
             if (attempt < this.config.retryAttempts) {
-                console.log(`[HttpTransportService] Reintentando en ${this.config.retryDelay * attempt}ms...`);
+                // console.log(`[HttpTransportService internal] Reintentando en ${this.config.retryDelay * attempt}ms...`);
                 await this.delay(this.config.retryDelay * attempt);
                 return this.sendLogsToEndpoint(logs, attempt + 1);
             }
 
             // Log de error final
-            console.error(`[HttpTransportService] Error final enviando lote después de ${attempt} intentos. Logs perdidos.`);
+            console.error(`[HttpTransportService internal] Error final enviando lote después de ${attempt} intentos. Logs perdidos.`);
         }
     }
 
@@ -248,7 +248,7 @@ export class HttpTransportService {
 
         this.flushTimer = setInterval(async () => {
             if (this.logQueue.length > 0) {
-                console.log(`[HttpTransportService] Flush automático: ${this.logQueue.length} logs en cola`);
+                // console.log(`[HttpTransportService internal] Flush automático: ${this.logQueue.length} logs en cola`);
                 await this.flushLogs();
             }
         }, this.config.flushInterval);
@@ -294,10 +294,10 @@ export class HttpTransportService {
                 }
             });
 
-            console.log('[HttpTransportService] Test de conectividad exitoso');
+            // console.log('[HttpTransportService] Test de conectividad exitoso');
             return true;
         } catch (error) {
-            console.error('[HttpTransportService] Test de conectividad falló:', error.message);
+            console.error('[HttpTransportService internal] Test de conectividad falló:', error.message);
             return false;
         }
     }
@@ -347,7 +347,7 @@ export class HttpTransportService {
     // Método para configurar niveles dinámicamente
     setEnabledLevels(levels: string[]): void {
         this.config.enabledLevels = levels;
-        console.log('[HttpTransportService] Niveles actualizados:', levels);
+        // console.log('[HttpTransportService internal] Niveles actualizados:', levels);
     }
 
     // Método para obtener estadísticas de la cola

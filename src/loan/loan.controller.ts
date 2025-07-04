@@ -165,7 +165,7 @@ export class LoanController {
     @CurrentUser() user: any,
     @Query('search') searchQuery?: string,
   ) {
-    console.log(user)
+    // this.logger.debug('User requesting approved loans:', user); // Ejemplo si se necesita loguear el usuario
     return this.loanQuery.getApprovedLoans(page, pageSize, searchQuery);
   }
 
@@ -257,7 +257,7 @@ export class LoanController {
     }
 
     try {
-      console.log(loanId, userId);
+      // this.logger.debug(`Fetching loan info for loanId: ${loanId}, userId: ${userId}`);
       const loan = await this.loanManagment.get(loanId, userId);
       this.logger.log(`Préstamo consultado: ${loanId} para usuario: ${userId} por ${user.type}`);
       return loan;

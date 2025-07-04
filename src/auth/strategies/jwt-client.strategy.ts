@@ -34,11 +34,12 @@ export class JwtClientStrategy extends PassportStrategy(Strategy, 'jwt-client') 
   }
 
   async validate(req: Request, payload: any) {
-    // console.log('Payload recibido:', payload); // Verificar el payload
-    // console.log('Tipo de payload:', payload.type); // Verificar el tipo
+    // this.logger.debug('Payload recibido:', payload); // Verificar el payload
+    // this.logger.debug('Tipo de payload:', payload.type); // Verificar el tipo
 
     if (payload.type !== 'client') {
-      console.log('Error: token no es de tipo client');
+      // Consider using LoggerService here if available, or keep console.error for critical path
+      console.error('Error: token no es de tipo client. Payload:', payload);
       throw new UnauthorizedException('Token inválido para clientes');
     }
 
@@ -46,10 +47,11 @@ export class JwtClientStrategy extends PassportStrategy(Strategy, 'jwt-client') 
       where: { id: payload.sub },
     });
 
-    // console.log('Usuario encontrado:', user ? 'Sí' : 'No'); // Verificar si se encontró el usuario
+    // this.logger.debug('Usuario encontrado:', user ? 'Sí' : 'No'); // Verificar si se encontró el usuario
 
     if (!user || user.isBan) {
-      console.log('Error: usuario no encontrado o baneado');
+      // Consider using LoggerService here
+      console.error('Error: usuario no encontrado o baneado. UserID:', payload.sub);
       throw new UnauthorizedException();
     }
 

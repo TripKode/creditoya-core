@@ -105,7 +105,7 @@ export class QueryService {
                 })
             );
 
-            console.log(`Found ${total} loan applications matching criteria`);
+            this.logger.debug(`Found ${total} loan applications matching criteria`);
 
             return {
                 data: loansWithUserData,

@@ -96,18 +96,6 @@ export class LoggerService {
       }
     }, pino.multistream(streams));
 
-    // Log de inicialización
-    console.log(`[LoggerService] Logs guardándose en: ${logFilePath}`);
-    console.log(`[LoggerService] Directorio de logs: ${this.logsDirectory}`);
-
-    if (this.httpTransport.config.httpTransportEnabled) {
-      console.log(`[LoggerService] HTTP Transport habilitado - Endpoint: ${this.httpTransport.config.logEndpoint}`);
-      console.log(`[LoggerService] HTTP Transport Level: ${this.httpTransport.config.httpTransportLevel}`);
-      console.log(`[LoggerService] HTTP Transport Niveles habilitados: [${this.httpTransport.config.enabledLevels.join(', ')}]`);
-      console.log(`[LoggerService] HTTP Transport Batch Size: ${this.httpTransport.config.batchSize}`);
-      console.log(`[LoggerService] HTTP Transport Flush Interval: ${this.httpTransport.config.flushInterval}ms`);
-    }
-
     // Log inicial para verificar que todo funciona
     this.info('LoggerService inicializado correctamente', {
       logsDirectory: this.logsDirectory,
@@ -126,10 +114,13 @@ export class LoggerService {
     try {
       if (!fs.existsSync(this.logsDirectory)) {
         fs.mkdirSync(this.logsDirectory, { recursive: true });
-        console.log(`[LoggerService] Directorio de logs creado: ${this.logsDirectory}`);
+        // Usar el logger interno para registrar este evento si ya está disponible,
+        // o un console.log si es demasiado temprano en el ciclo de vida.
+        // Dado que this.logger se inicializa después, console.log es más seguro aquí.
+        console.log(`[LoggerService Initializer] Directorio de logs creado: ${this.logsDirectory}`);
       }
     } catch (error) {
-      console.error(`[LoggerService] Error creando directorio de logs:`, error);
+      console.error(`[LoggerService Initializer] Error creando directorio de logs:`, error);
     }
   }
 
@@ -315,9 +306,11 @@ export class LoggerService {
       // Cerrar el logger
       this.logger.flush();
 
-      console.log('[LoggerService] Cerrado correctamente');
+      // Usar console.log aquí es aceptable ya que es un mensaje final del logger mismo.
+      console.log('[LoggerService Shutdown] Cerrado correctamente');
     } catch (error) {
-      console.error('[LoggerService] Error al cerrar:', error);
+      // Igualmente aquí.
+      console.error('[LoggerService Shutdown] Error al cerrar:', error);
     }
   }
 

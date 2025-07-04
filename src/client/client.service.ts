@@ -59,9 +59,7 @@ export class ClientService {
         completeName: `${data.names} ${data.firstLastName} ${data.secondLastName}`
       });
     } catch (emailError) {
-      // Log the error but don't throw it to ensure user creation isn't affected
-      console.error('Error sending welcome email, but user was created:', emailError);
-      // Consider adding email to a resend queue or tracking failed emails
+      this.logger.error('Error sending welcome email, but user was created:', emailError);
     }
 
     return newUser;
@@ -187,7 +185,7 @@ export class ClientService {
 
       return users;
     } catch (error) {
-      console.log(error);
+      this.logger.error('Error searching users:', error);
       return null;
     }
   }
@@ -221,11 +219,11 @@ export class ClientService {
         // Asignar condiciones OR al filtro where
         where.OR = searchConditions;
 
-        console.log(`Aplicando búsqueda avanzada para: "${cleanSearchQuery}"`);
+        this.logger.debug(`Aplicando búsqueda avanzada para: "${cleanSearchQuery}"`);
       }
 
       // Añado logging para diagnóstico
-      console.log(`Fetching users with skip=${skip}, take=${pageSize}, search=${searchQuery || 'none'}`);
+      this.logger.debug(`Fetching users with skip=${skip}, take=${pageSize}, search=${searchQuery || 'none'}`);
 
       const [users, totalCount] = await Promise.all([
         this.prisma.user.findMany({
@@ -238,12 +236,11 @@ export class ClientService {
         this.prisma.user.count({ where }) // Contar solo los usuarios que coinciden con el filtro
       ]);
 
-      console.log(`Found ${users.length} users out of ${totalCount} total for search: ${searchQuery || 'none'}`);
+      this.logger.debug(`Found ${users.length} users out of ${totalCount} total for search: ${searchQuery || 'none'}`);
 
       return { users, totalCount };
     } catch (error) {
-      console.error('Error fetching users:', error);
-      // Puedes lanzar una excepción aquí o devolver un valor por defecto
+      this.logger.error('Error fetching users:', error);
       return { users: [], totalCount: 0 };
     }
   }
@@ -312,7 +309,7 @@ export class ClientService {
       }
     }
 
-    console.log("Datos finales para Prisma:", JSON.stringify(filteredData, null, 2));
+    this.logger.debug("Datos finales para Prisma:", { data: filteredData });
 
     try {
       const updatedUser = await this.prisma.user.update({
@@ -321,11 +318,11 @@ export class ClientService {
         include: { Document: true }
       });
 
-      this.logger.log(`Usuario actualizado: ${id}`, filteredData);
+      this.logger.log(`Usuario actualizado: ${id}`, { data: filteredData }); // No loguear toda la data si es sensible
       return updatedUser;
 
     } catch (prismaError) {
-      console.error("Error de Prisma:", prismaError);
+      this.logger.error("Error de Prisma al actualizar usuario:", prismaError);
       throw new Error(`Error al actualizar usuario: ${prismaError.message}`);
     }
   }
