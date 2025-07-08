@@ -155,7 +155,7 @@ export const generateSecurityNoticeEmail = ({
           font-size="14px"
           font-weight="500"
           padding="12px 30px"
-          href="https://creditoya.space/"
+          href="https://w.app/creditoya"
           css-class="center-align">
           Contactar Soporte
         </mj-button>
