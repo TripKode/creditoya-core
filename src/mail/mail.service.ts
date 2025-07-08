@@ -19,6 +19,8 @@ import * as path from 'path';
 import * as util from 'util';
 import * as stream from 'stream';
 import { generateCustomEmail } from 'templatesEmails/generates/GenerateCusmosEmail';
+import { generateSecurityNoticeEmail } from 'templatesEmails/generates/GenerateCommunicate';
+import { CloudinaryService } from 'src/cloudinary/cloudinary.service';
 
 // Tipo para la cola de correos con Resend
 interface EmailQueueItem {
@@ -55,8 +57,8 @@ export class MailService {
   private mjmlCache = new Map<string, string>();
 
   constructor(
-    private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
+    private readonly cloudinary: CloudinaryService
   ) {
     // Inicializar Resend con la API key
     const resendApiKey = this.configService.get<string>('RESEND_API_KEY');
@@ -697,6 +699,98 @@ export class MailService {
     } catch (error) {
       this.logger.error(`Failed to prepare custom email: ${error.message}`);
       throw new Error(`Failed to send custom email: ${error.message}`);
+    }
+  }
+
+  async sendAnnouncementEmail(data: {
+    subject: string;
+    email: string;
+    title: string;
+    additionalMessages?: { title: string; content: string }[];
+    message: string;
+    recipientName?: string;
+    priority?: 'high';
+    senderName?: string;
+    bannerImage?: Express.Multer.File[];
+  }) {
+    try {
+      if (!data.email || !data.subject || !data.title || !data.message) {
+        throw new Error('Missing required fields for announcement email');
+      }
+
+      const {
+        subject,
+        email,
+        title,
+        additionalMessages,
+        message,
+        recipientName,
+        priority,
+        senderName,
+        bannerImage
+      } = data;
+
+      // Subida de imagen de banner
+      let bannerImageUrl = '';
+
+      if (bannerImage && bannerImage.length > 0) {
+        // Subir la imagen a Cloudinary
+        const base64Banner = `data:${bannerImage[0].mimetype};base64,${bannerImage[0].buffer.toString('base64')}`;
+
+        // Corrección: Usar 'reports-images' como folder válido y pasar publicId como tercer parámetro
+        const uploadResult = await this.cloudinary.uploadImage(
+          base64Banner,
+          'reports-images', // Usar un folder válido del tipo FolderNames
+          `banner_${Date.now()}` // publicId como tercer parámetro
+        );
+
+        // Corrección: uploadResult ya es una string (secure_url), no un objeto
+        if (uploadResult) {
+          bannerImageUrl = uploadResult;
+          this.logger.log(`Banner image uploaded successfully: ${bannerImageUrl}`);
+        } else {
+          this.logger.warn('Banner image upload failed, using default banner');
+        }
+      }
+
+      const content = generateSecurityNoticeEmail({
+        title,
+        securityMessage: message,
+        additionalMessages,
+        recipientName,
+        senderName,
+        bannerImageUrl
+      });
+
+      const html = await this.prepareHtmlTemplate(content);
+
+      // Preparar las opciones básicas del correo
+      const mailOptions: EmailQueueItem['options'] = {
+        from: await this.getEmailSender('notifications'),
+        to: email,
+        subject: subject,
+        html: html,
+        priority: priority || 'normal',
+      };
+
+      let tempFiles: { filename: string; path: string }[] = [];
+
+      // Si hay archivos adjuntos, procesarlos
+      if (bannerImage && bannerImage.length > 0) {
+        tempFiles = await this.saveUploadedFiles(bannerImage);
+
+        if (tempFiles.length > 0) {
+          mailOptions.attachments = await this.prepareAttachments(tempFiles);
+        }
+      }
+
+      // Enviar el correo
+      this.queueEmail(mailOptions, tempFiles);
+
+      this.logger.log(`Announcement email queued successfully for: ${email}`);
+    } catch (error) {
+      this.logger.error(`Failed to prepare announcement email: ${error.message}`);
+      throw new Error(`Failed to send announcement email: ${error.message}`);
     }
   }
 
