@@ -190,14 +190,6 @@ export class PdfsController {
     return this.pdfsService.generateMultiplePdfs(documentsParams);
   }
 
-  // Solo para administradores y empleados
-  @UseGuards(IntranetAuthGuard, RolesGuard)
-  @Roles('admin', 'employee')
-  @Post('generate-pending')
-  async processPendingDocuments() {
-    return this.pdfsService.generatePendingDocuments();
-  }
-
   // Accesible tanto para clientes como para intranet con validaciones
   // @UseGuards(IntranetAuthGuard)
   @Get('document/:documentId')
@@ -261,19 +253,23 @@ export class PdfsController {
   async getNeverDownloadedDocuments(
     @CurrentUser() user: any,
     @Query('userId') userId?: string,
-    @Query('loanId') loanId?: string
+    @Query('loanId') loanId?: string,
+    @Query('page') page: string = '1',
+    @Query('limit') limit: string = '10'
   ) {
-    // Si es un cliente, solo puede ver sus propios documentos
-    if (user.type === 'client') {
-      if (userId && userId !== user.id) {
-        throw new ForbiddenException('Solo puede ver sus propios documentos');
-      }
+    const pageNumber = parseInt(page, 10) || 1;
+    const limitNumber = parseInt(limit, 10) || 10;
 
-      // Forzar que solo muestre documentos del usuario autenticado
-      userId = user.id;
+    // Validar límites
+    if (limitNumber > 100) {
+      throw new Error('Limit cannot exceed 100');
     }
 
-    return this.pdfsService.listNeverDownloadedDocuments({ userId, loanId });
+    return this.pdfsService.listNeverDownloadedDocuments(
+      { userId, loanId },
+      pageNumber,
+      limitNumber
+    );
   }
 
   // Puede ser accedido por intranet y clientes con restricciones

@@ -66,8 +66,8 @@ export class PdfsService {
   /**
    * Lists documents that have never been downloaded
    */
-  async listNeverDownloadedDocuments(filters?: DocumentFilter) {
-    return this.documentQueryService.listNeverDownloadedDocuments(filters);
+  async listNeverDownloadedDocuments(filters?: DocumentFilter, page?: number, limit?: number) {
+    return this.documentQueryService.listNeverDownloadedDocuments(filters, page, limit);
   }
 
   /**
@@ -82,12 +82,5 @@ export class PdfsService {
    */
   async findnewDocs() {
     return this.batchProcessingService.findLoansWithoutDocuments();
-  }
-
-  /**
-   * Automatically generates documents for all pending loan applications
-   */
-  async generatePendingDocuments(): Promise<BatchProcessingResult> {
-    return this.batchProcessingService.generatePendingDocuments();
   }
 }

@@ -64,33 +64,6 @@ export class BatchPDFService {
         }
     }
 
-    /**
-     * Automatically generates documents for all pending loan applications
-     */
-    async generatePendingDocuments(): Promise<BatchProcessingResult> {
-        this.logger.log('Starting batch generation of pending documents');
-
-        const { loans } = await this.findLoansWithoutDocuments();
-
-        const results: BatchProcessingResult = {
-            processed: loans.length,
-            successful: 0,
-            failed: 0,
-            details: []
-        };
-
-        for (const loan of loans) {
-            try {
-                await this.processLoan(loan, results);
-            } catch (error) {
-                this.handleLoanProcessingError(loan, error, results);
-            }
-        }
-
-        this.logger.log(`Batch document generation complete. Successful: ${results.successful}, Failed: ${results.failed}`);
-        return results;
-    }
-
     private async processLoan(loan: any, results: BatchProcessingResult): Promise<void> {
         this.logger.log(`Processing loan ${loan.id} for user ${loan.userId}`);
 

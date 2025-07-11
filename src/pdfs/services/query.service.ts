@@ -33,7 +33,6 @@ export class QueryService {
     constructor(
         private readonly prismaService: PrismaService,
     ) {
-        // Agregar validación en el constructor
         if (!this.prismaService) {
             this.logger.error('PrismaService no fue inyectado correctamente');
             throw new Error('PrismaService dependency injection failed');
@@ -45,7 +44,6 @@ export class QueryService {
      */
     async listDocsGenerates(loanId: string) {
         try {
-            // Validación adicional antes de usar prismaService
             if (!this.prismaService) {
                 throw new Error('PrismaService is not available');
             }
@@ -74,8 +72,18 @@ export class QueryService {
 
             const whereClause = this.buildWhereClause(filters);
 
+            // Primero obtener los IDs de loans válidos
+            const validLoanIds = await this.prismaService.loanApplication.findMany({
+                select: { id: true }
+            });
+
+            const validIds = validLoanIds.map(loan => loan.id);
+
             const documents = await this.prismaService.generatedDocuments.findMany({
-                where: whereClause,
+                where: {
+                    ...whereClause,
+                    loanId: { in: validIds }
+                },
                 include: {
                     loan: {
                         include: {
@@ -107,19 +115,40 @@ export class QueryService {
     }
 
     /**
-     * Lists documents that have never been downloaded
+     * Lists documents that have never been downloaded with pagination
      */
-    async listNeverDownloadedDocuments(filters?: DocumentFilter): Promise<FormattedDocument[]> {
+    async listNeverDownloadedDocuments(
+        filters?: DocumentFilter,
+        page: number = 1,
+        limit: number = 10
+    ): Promise<{ documents: FormattedDocument[], total: number, totalPages: number, currentPage: number }> {
         try {
             if (!this.prismaService) {
                 throw new Error('PrismaService is not available');
             }
 
+            // Obtener los IDs de loans válidos
+            const validLoanIds = await this.prismaService.loanApplication.findMany({
+                select: { id: true }
+            });
+
+            const validIds = validLoanIds.map(loan => loan.id);
+
             const whereClause = {
                 ...this.buildWhereClause(filters),
-                downloadCount: 0
+                downloadCount: 0,
+                loanId: { in: validIds }
             };
 
+            // Calcular offset para paginación
+            const offset = (page - 1) * limit;
+
+            // Obtener total de documentos para calcular páginas
+            const totalDocuments = await this.prismaService.generatedDocuments.count({
+                where: whereClause
+            });
+
+            // Obtener documentos paginados
             const documents = await this.prismaService.generatedDocuments.findMany({
                 where: whereClause,
                 include: {
@@ -138,13 +167,22 @@ export class QueryService {
                         }
                     }
                 },
-                orderBy: { created_at: 'desc' }
+                orderBy: { created_at: 'desc' },
+                skip: offset,
+                take: limit
             });
 
             const formattedResults = this.formatDocumentResults(documents);
-            this.logger.log(`Retrieved ${formattedResults.length} never-downloaded documents`);
+            const totalPages = Math.ceil(totalDocuments / limit);
 
-            return formattedResults;
+            this.logger.log(`Retrieved ${formattedResults.length} never-downloaded documents (page ${page}/${totalPages})`);
+
+            return {
+                documents: formattedResults,
+                total: totalDocuments,
+                totalPages: totalPages,
+                currentPage: page
+            };
         } catch (error) {
             this.logger.error('Error listing never-downloaded documents', error);
             throw error;
@@ -160,9 +198,17 @@ export class QueryService {
                 throw new Error('PrismaService is not available');
             }
 
+            // Obtener los IDs de loans válidos
+            const validLoanIds = await this.prismaService.loanApplication.findMany({
+                select: { id: true }
+            });
+
+            const validIds = validLoanIds.map(loan => loan.id);
+
             const whereClause = {
                 ...this.buildWhereClause(filters),
-                downloadCount: { gte: 1 }
+                downloadCount: { gte: 1 },
+                loanId: { in: validIds }
             };
 
             const documents = await this.prismaService.generatedDocuments.findMany({
@@ -225,7 +271,7 @@ export class QueryService {
             loanApplication: {
                 id: doc.loan.id,
                 status: doc.loan.status,
-                amount: doc.loan.cantity, // Nota: parece que debería ser "quantity" en lugar de "cantity"
+                amount: doc.loan.cantity,
                 created_at: doc.loan.created_at,
                 user: doc.loan.user
             },
