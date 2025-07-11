@@ -18,12 +18,29 @@ import {
 import { CombinedAuthGuard } from 'src/auth/guards/combined-auth.guard';
 import { IntranetAuthGuard } from 'src/auth/guards/intranet-auth.guard';
 import { ClientAuthGuard } from 'src/auth/guards/client-auth.guard';
+import { BatchPDFService } from './services/batch.service';
+import { GeneratePDFService } from './services/generate.service';
+import { HelpersPDFService } from './services/helpers.service';
+import { QueryService } from './services/query.service';
+import { SkeletonPdfServices } from './services/skeleton.service';
+import { TransformerPDFService } from './services/transformer.service';
+import { DocumentsUploadService } from './services/upload.service';
 
 @Module({
-  imports: [GoogleCloudModule, PrismaModule],
+  imports: [
+    GoogleCloudModule,
+    PrismaModule,
+  ],
   controllers: [PdfsController],
   providers: [
     PdfsService,
+    BatchPDFService,
+    GeneratePDFService,
+    HelpersPDFService,
+    QueryService,
+    SkeletonPdfServices,
+    TransformerPDFService,
+    DocumentsUploadService,
     ClientAuthGuard, // Add ClientAuthGuard as a provider
     IntranetAuthGuard, // Add IntranetAuthGuard as a provider if not already provided elsewhere
     CombinedAuthGuard, // Add CombinedAuthGuard as a provider

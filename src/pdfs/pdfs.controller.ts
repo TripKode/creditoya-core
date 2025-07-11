@@ -1,20 +1,32 @@
-import { Controller, Get, Post, Body, Param, Query, UseGuards, Res, ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Param,
+  Query,
+  UseGuards,
+  Res,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { PdfsService } from './pdfs.service';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { StatusLoan } from '@prisma/client';
 import { DocumentParams } from './dto/create-pdf.dto';
 import { Response } from 'express';
 import { IntranetAuthGuard } from 'src/auth/guards/intranet-auth.guard';
-import { ClientAuthGuard } from 'src/auth/guards/client-auth.guard';
 import { RolesGuard } from 'src/auth/guards/roles.guard';
 import { Roles } from 'src/auth/decorators/roles.decorator';
 import { CurrentUser } from 'src/auth/decorators/current-user.decorator';
 import { CombinedAuthGuard } from 'src/auth/guards/combined-auth.guard';
+import { SkeletonPdfServices } from './services/skeleton.service';
 
 @Controller('pdfs')
 export class PdfsController {
   constructor(
     private readonly pdfsService: PdfsService,
+    private readonly pdfsSkeleton: SkeletonPdfServices,
     private readonly prismaService: PrismaService
   ) { }
 
@@ -135,7 +147,7 @@ export class PdfsController {
       accountNumber: string
     }
   ) {
-    return this.pdfsService.generateAboutLoanPdf(params);
+    return this.pdfsSkeleton.generateAboutLoanPdf(params);
   }
 
   // Solo para administradores y empleados
@@ -145,7 +157,7 @@ export class PdfsController {
   async generateInstructionLetter(
     @Body() params: { signature: string; numberDocument: string; name: string }
   ) {
-    return this.pdfsService.generateInstructionLetterPdf(params);
+    return this.pdfsSkeleton.generateInstructionLetterPdf(params);
   }
 
   // Solo para administradores y empleados
@@ -155,7 +167,7 @@ export class PdfsController {
   async generateSalaryPayment(
     @Body() params: { signature: string; numberDocument: string; name: string }
   ) {
-    return this.pdfsService.generateSalaryPaymentAuthorizationPdf(params);
+    return this.pdfsSkeleton.generateSalaryPaymentAuthorizationPdf(params);
   }
 
   // Solo para administradores y empleados
@@ -165,7 +177,7 @@ export class PdfsController {
   async generatePromissoryNote(
     @Body() params: { signature: string; numberDocument: string; name: string }
   ) {
-    return this.pdfsService.generatePromissoryNotePdf(params);
+    return this.pdfsSkeleton.generatePromissoryNotePdf(params);
   }
 
   // Solo para administradores y empleados
