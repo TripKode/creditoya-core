@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { CreateLoanApplicationDto, PreCreateLoanApplicationDto } from './dto/create-loan.dto';
 import { MailService } from 'src/mail/mail.service';
@@ -7,28 +7,25 @@ import { GoogleCloudService } from 'src/gcp/gcp.service';
 import { RandomUpIdsGenerator } from 'handlers/GenerateUpIds';
 import { CloudinaryService } from 'src/cloudinary/cloudinary.service';
 import { ILoanApplication, LoanStatus } from 'types/full';
-import { LoggerService } from 'src/logger/logger.service';
 
 @Injectable()
 export class LoanService {
+  private logger = new Logger(LoanService.name);
+
   constructor(
-    private readonly logger: LoggerService,
     private readonly prisma: PrismaService,
     private readonly mailService: MailService,
     private readonly pdfService: PdfsService,
     private readonly gcpService: GoogleCloudService,
     private readonly cloudinary: CloudinaryService,
-  ) {
-    // Establecer el contexto del logger para este servicio
-    this.logger.setContext('LoanService');
-  }
+  ) { }
 
   // Método para crear una solicitud de préstamo
   private async create(data: CreateLoanApplicationDto): Promise<ILoanApplication> {
     const startTime = Date.now();
 
     try {
-      this.logger.info('Iniciando creación de solicitud de préstamo', {
+      this.logger.debug('Iniciando creación de solicitud de préstamo', {
         event: 'loan_creation_start',
         userId: data.userId,
         entity: data.entity,
@@ -109,7 +106,7 @@ export class LoanService {
           throw new BadRequestException("Porfavor sube los volantes de pago");
         }
       } else {
-        this.logger.info('Usuario valor_agregado - omitiendo validaciones de documentos', {
+        this.logger.debug('Usuario valor_agregado - omitiendo validaciones de documentos', {
           event: 'valor_agregado_user_skip_validation',
           userId: data.userId,
           company: user.currentCompanie
@@ -153,7 +150,7 @@ export class LoanService {
         include: { user: true },
       });
 
-      this.logger.info('Préstamo creado exitosamente en base de datos', {
+      this.logger.debug('Préstamo creado exitosamente en base de datos', {
         event: 'loan_created_success',
         loanId: newLoan.id,
         userId: data.userId,
@@ -213,7 +210,7 @@ export class LoanService {
           newLoan.id
         );
 
-        this.logger.info('PDFs generados y subidos exitosamente', {
+        this.logger.debug('PDFs generados y subidos exitosamente', {
           event: 'pdf_generation_success',
           loanId: newLoan.id,
           userId: data.userId,
@@ -245,7 +242,7 @@ export class LoanService {
           reqCantity: newLoan.cantity
         });
 
-        this.logger.info('Correo de confirmación enviado exitosamente', {
+        this.logger.debug('Correo de confirmación enviado exitosamente', {
           event: 'email_sent_success',
           loanId: newLoan.id,
           email: user.email
@@ -261,7 +258,7 @@ export class LoanService {
       }
 
       const duration = Date.now() - startTime;
-      this.logger.info('Proceso de creación de préstamo completado', {
+      this.logger.debug('Proceso de creación de préstamo completado', {
         event: 'loan_creation_completed',
         loanId: newLoan.id,
         userId: data.userId,
@@ -288,13 +285,7 @@ export class LoanService {
     const startTime = Date.now();
 
     try {
-      this.logger.info('Iniciando pre-creación de solicitud de préstamo', {
-        event: 'pre_loan_creation_start',
-        userId: data.userId,
-        entity: data.entity,
-        amount: data.cantity,
-        isValorAgregado: data.isValorAgregado
-      });
+      this.logger.debug("Iniciando pre-creación de solicitud de préstamo");
 
       // Validation of required documents
       if (!data.isValorAgregado && !data.fisrt_flyer && !data.second_flyer && !data.third_flyer) {
@@ -413,7 +404,7 @@ export class LoanService {
         include: { user: true },
       });
 
-      this.logger.info('Pre-solicitud creada exitosamente', {
+      this.logger.warn('Pre-solicitud creada exitosamente', {
         event: 'pre_loan_created_success',
         preId: preCreatedLoan.id,
         userId: data.userId,
@@ -427,7 +418,7 @@ export class LoanService {
           mail: preCreatedLoan.user.email
         });
 
-        this.logger.info('Token de verificación enviado por correo', {
+        this.logger.warn('Token de verificación enviado por correo', {
           event: 'verification_token_sent',
           preId: preCreatedLoan.id,
           email: preCreatedLoan.user.email
@@ -449,7 +440,7 @@ export class LoanService {
       };
 
       const duration = Date.now() - startTime;
-      this.logger.info('Pre-creación de solicitud completada exitosamente', {
+      this.logger.debug('Pre-creación de solicitud completada exitosamente', {
         event: 'pre_loan_creation_completed',
         preId: preCreatedLoan.id,
         userId: data.userId,
@@ -476,7 +467,7 @@ export class LoanService {
     const startTime = Date.now();
 
     try {
-      this.logger.info('Iniciando verificación de pre-solicitud', {
+      this.logger.debug('Iniciando verificación de pre-solicitud', {
         event: 'pre_loan_verification_start',
         preId,
         tokenProvided: !!token
@@ -597,7 +588,7 @@ export class LoanService {
       });
 
       const duration = Date.now() - startTime;
-      this.logger.info('Verificación y creación de préstamo completada exitosamente', {
+      this.logger.debug('Verificación y creación de préstamo completada exitosamente', {
         event: 'pre_loan_verification_completed',
         preId,
         loanId: newLoan.id,

@@ -13,7 +13,6 @@ import { AuthModule } from './auth/auth.module';
 import { BackupModule } from './backup/backup.module';
 import { PdfsModule } from './pdfs/pdfs.module';
 import { PasswordResetModule } from './password-reset/password-reset.module';
-import { LoggerModule } from './logger/logger.module';
 
 @Module({
   imports: [
@@ -29,7 +28,6 @@ import { LoggerModule } from './logger/logger.module';
     BackupModule,
     PdfsModule,
     PasswordResetModule,
-    LoggerModule,
   ],
   controllers: [AppController],
   providers: [AppService],

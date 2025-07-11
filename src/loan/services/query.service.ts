@@ -1,18 +1,16 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { LoanApplication, Prisma, StatusLoan } from "@prisma/client";
-import { LoggerService } from "src/logger/logger.service";
 import { PrismaService } from "src/prisma/prisma.service";
 import { UtilityService } from "./utility.service";
 
 @Injectable()
 export class QueryService {
+    private logger = new Logger(QueryService.name);
+
     constructor(
         private readonly prisma: PrismaService,
-        private readonly logger: LoggerService,
         private readonly utility: UtilityService
-    ) {
-        this.logger.setContext('loanQueryService')
-    }
+    ) { }
 
     // Método para obtener todas las solicitudes de préstamo
     async getAll(

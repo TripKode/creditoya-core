@@ -42,6 +42,7 @@ import { LoanDocumentService } from './services/document.service';
 @Controller('loans')
 export class LoanController {
   private logger = new Logger(LoanController.name);
+
   constructor(
     private readonly loan: LoanService,
     private readonly loanDisburse: LoanDisbursementService,

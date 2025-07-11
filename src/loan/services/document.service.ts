@@ -1,23 +1,20 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { UploadId } from "../dto/change-loan-status.dto";
 import { RandomUpIdsGenerator } from "handlers/GenerateUpIds";
 import { LoanApplication } from "@prisma/client";
 import { PrismaService } from "src/prisma/prisma.service";
 import { MailService } from "src/mail/mail.service";
 import { GoogleCloudService } from "src/gcp/gcp.service";
-import { LoggerService } from "src/logger/logger.service";
 
 @Injectable()
 export class LoanDocumentService {
+    private logger = new Logger(LoanDocumentService.name);
 
     constructor (
         private readonly prisma: PrismaService,
         private readonly mail: MailService,
         private readonly gcp: GoogleCloudService,
-        private readonly logger: LoggerService
-    ) {
-        this.logger.setContext('loanDocumentService');
-    }
+    ) { }
 
     async rejectDocumentInLoan(
         loanId: string,

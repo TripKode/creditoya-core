@@ -2,7 +2,6 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Storage } from '@google-cloud/storage';
 import DecryptJson from 'handlers/decryptJson';
 import { CREDENTIAL_GCP, GpcTypes } from 'templates/cloud';
-import { LoggerService } from 'src/logger/logger.service';
 
 export interface PropsUpload {
   file: Express.Multer.File;
@@ -22,11 +21,11 @@ export interface PropsDelete {
 
 @Injectable()
 export class GoogleCloudService {
+  private logger = new Logger(GoogleCloudService.name);
 
   constructor(
     @Inject(CREDENTIAL_GCP)
     private readonly credential: GpcTypes,
-    private logger: LoggerService
   ) { }
 
   /**

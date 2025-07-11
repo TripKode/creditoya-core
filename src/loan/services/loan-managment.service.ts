@@ -1,17 +1,15 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { UpdateLoanApplicationDto } from "../dto/update-loan.dto";
 import { LoanApplication } from "@prisma/client";
 import { PrismaService } from "src/prisma/prisma.service";
-import { LoggerService } from "src/logger/logger.service";
 
 @Injectable()
 export class LoanManagementService {
+    private logger = new Logger(LoanManagementService.name);
+
     constructor(
         private readonly prisma: PrismaService,
-        private readonly logger: LoggerService,
-    ) {
-        this.logger.setContext('loanManagmentService')
-    }
+    ) { }
 
     // Método para actualizar una solicitud de préstamo
     async update(id: string, data: UpdateLoanApplicationDto): Promise<LoanApplication> {

@@ -1,21 +1,19 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { LoanApplication, Prisma, StatusLoan } from "@prisma/client";
 import { ChangeLoanStatusDto } from "../dto/change-loan-status.dto";
 import { PrismaService } from "src/prisma/prisma.service";
-import { LoggerService } from "src/logger/logger.service";
 import { MailService } from "src/mail/mail.service";
 import { GoogleCloudService } from "src/gcp/gcp.service";
 
 @Injectable()
 export class StatusService {
+    private logger = new Logger(StatusService.name);
+
     constructor(
         private readonly prisma: PrismaService,
-        private readonly logger: LoggerService,
         private readonly mail: MailService,
         private readonly gcp: GoogleCloudService
-    ) {
-        this.logger.setContext('loanStatusService')
-    }
+    ) { }
 
     // Método para cambiar el Status de una solicitud
     async changeStatus(loanApplicationId: string, statusDto: ChangeLoanStatusDto): Promise<LoanApplication> {

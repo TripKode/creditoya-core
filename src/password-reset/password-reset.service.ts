@@ -13,7 +13,6 @@ export class PasswordResetService {
 
   constructor(
     private prisma: PrismaService,
-    private configService: ConfigService,
     private emailService: MailService,
   ) { }
 

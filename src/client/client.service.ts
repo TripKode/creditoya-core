@@ -20,6 +20,15 @@ export class ClientService {
   ) { }
 
   async create(data: User): Promise<User> {
+    this.logger.debug('Iniciando creación de usuario', {
+      email: data.email,
+      hasRequiredFields: {
+        names: !!data.names,
+        firstLastName: !!data.firstLastName,
+        secondLastName: !!data.secondLastName,
+        currentCompanie: !!data.currentCompanie
+      }
+    });
 
     const existEmail = await this.prisma.user.findUnique({
       where: { email: data.email.trim() },

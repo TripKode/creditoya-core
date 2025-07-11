@@ -1,20 +1,15 @@
 import { NestFactory } from '@nestjs/core';
+import { Logger } from '@nestjs/common';
 import { checkPortStatus } from './CheckPorts';
 import { AppModule } from 'src/app.module';
-import { LoggerService } from 'src/logger/logger.service';
-import { LoggerConfigService } from 'src/logger/service/config.service';
-import { HttpTransportService } from 'src/logger/service/http-transport.service';
-import { ApplicationLoggerService } from 'src/logger/service/application.service';
 
-const httpTransport = new HttpTransportService()
-// Crear instancia del logger para bootstrap
-const bootstrapLogger = new LoggerService(httpTransport);
-const applicationLog = new ApplicationLoggerService(bootstrapLogger, httpTransport);
+// Crear instancia del logger nativo de NestJS para bootstrap
+const logger = new Logger('Bootstrap');
 
 export async function bootstrap() {
   try {
-    // Logging estructurado con LoggerService
-    bootstrapLogger.info('🚀 Iniciando aplicación NestJS', {
+    // Logging estructurado con Logger nativo de NestJS
+    logger.log('🚀 Iniciando aplicación NestJS', {
       event: 'bootstrap_start',
       timestamp: new Date().toISOString(),
       workingDirectory: process.cwd(),
@@ -46,10 +41,7 @@ export async function bootstrap() {
       environment: isProduction ? 'PRODUCTION' : 'DEVELOPMENT'
     };
 
-    bootstrapLogger.info('🎯 Configuración de entorno determinada', {
-      event: 'environment_config',
-      ...environmentConfig
-    });
+    logger.log('🎯 Configuración de entorno determinada', environmentConfig);
 
     console.log(`🌐 Entorno detectado: ${isProduction ? 'PRODUCTION' : 'DEVELOPMENT'}`);
     console.log(`🎯 Puerto configurado: ${port}`);
@@ -57,7 +49,7 @@ export async function bootstrap() {
 
     // VERIFICAR ESTADO DEL PUERTO ANTES DE CREAR LA APP
     console.log(`\n🔍 === VERIFICANDO PUERTO ${port} ===`);
-    bootstrapLogger.info(`🔍 Verificando disponibilidad del puerto ${port}`, {
+    logger.log(`🔍 Verificando disponibilidad del puerto ${port}`, {
       event: 'port_check_start',
       port,
       host
@@ -75,7 +67,7 @@ export async function bootstrap() {
     console.log(`📊 Puerto ${port} en ${host}: ${isPortOccupied ? 'OCUPADO' : 'LIBRE'}`);
 
     if (isPortOccupied || isPortOccupiedElsewhere) {
-      bootstrapLogger.error(`❌ Puerto ${port} ya está en uso`, {
+      logger.error(`❌ Puerto ${port} ya está en uso`, {
         event: 'port_occupied_error',
         port,
         host,
@@ -92,25 +84,27 @@ export async function bootstrap() {
     }
 
     console.log('\n🏗️ === CREANDO APLICACIÓN NESTJS ===');
-    bootstrapLogger.info('🏗️ Creando aplicación NestJS', {
+    logger.log('🏗️ Creando aplicación NestJS', {
       event: 'nestjs_app_creation_start'
     });
 
-    const app = await NestFactory.create(AppModule);
+    // Crear la aplicación con el logger nativo
+    const app = await NestFactory.create(AppModule, {
+      logger: ['log', 'error', 'warn', 'debug', 'verbose']
+    });
 
-    // *** CONFIGURAR EL LOGGER GLOBAL DE LA APLICACIÓN ***
-    const appLogger = app.get(LoggerService);
-    app.useLogger(appLogger);
+    // Obtener el logger de la aplicación
+    const appLogger = new Logger('Application');
 
-    bootstrapLogger.info('✅ Aplicación NestJS creada exitosamente', {
+    logger.log('✅ Aplicación NestJS creada exitosamente', {
       event: 'nestjs_app_created'
     });
     console.log('✅ Aplicación NestJS creada exitosamente');
-    console.log('✅ Logger global configurado');
+    console.log('✅ Logger nativo de NestJS configurado');
 
-    // Middleware response-time con manejo de errores corregido
+    // Middleware response-time con manejo de errores
     console.log('\n🔧 === CONFIGURANDO MIDDLEWARES ===');
-    appLogger.info('🔧 Configurando middlewares', {
+    appLogger.log('🔧 Configurando middlewares', {
       event: 'middleware_setup_start'
     });
 
@@ -119,14 +113,25 @@ export async function bootstrap() {
       const middleware = responseTime.default || responseTime;
       if (typeof middleware === 'function') {
         app.use(middleware());
-        applicationLog.logMiddlewareSetup('Response-time', true);
+        appLogger.log('✅ Response-time middleware configurado', {
+          middleware: 'response-time',
+          status: 'success'
+        });
         console.log('✅ Response-time middleware configurado');
       } else {
-        applicationLog.logMiddlewareSetup('Response-time', false, { reason: 'No es una función válida' });
+        appLogger.warn('⚠️ Response-time middleware no es una función válida', {
+          middleware: 'response-time',
+          status: 'failed',
+          reason: 'No es una función válida'
+        });
         console.warn('⚠️ Response-time middleware no es una función válida');
       }
     } catch (error) {
-      applicationLog.logMiddlewareSetup('Response-time', false, error);
+      appLogger.error('⚠️ No se pudo cargar response-time middleware', error.stack, {
+        middleware: 'response-time',
+        status: 'failed',
+        error: error.message
+      });
       console.warn('⚠️ No se pudo cargar response-time middleware:', error.message);
     }
 
@@ -153,26 +158,42 @@ export async function bootstrap() {
       allowedHeaders: ['Content-Type', 'Authorization', 'Cookie'],
     });
 
-    applicationLog.logCorsSetup(corsOrigins, environmentConfig.environment);
+    appLogger.log('✅ CORS configurado', {
+      event: 'cors_setup',
+      origins: corsOrigins,
+      environment: environmentConfig.environment,
+      originsCount: corsOrigins.length
+    });
 
     console.log(`✅ CORS configurado para ${corsOrigins.length} orígenes`);
     console.log(`📝 Orígenes permitidos: ${corsOrigins.join(', ')}`);
 
-    // Cookie parser con manejo de errores corregido
+    // Cookie parser con manejo de errores
     console.log('\n🍪 === CONFIGURANDO COOKIE PARSER ===');
     try {
       const cookieParser = await import('cookie-parser');
       const middleware = cookieParser.default || cookieParser;
       if (typeof middleware === 'function') {
         app.use(middleware());
-        applicationLog.logMiddlewareSetup('Cookie parser', true);
+        appLogger.log('✅ Cookie parser configurado', {
+          middleware: 'cookie-parser',
+          status: 'success'
+        });
         console.log('✅ Cookie parser configurado');
       } else {
-        applicationLog.logMiddlewareSetup('Cookie parser', false, { reason: 'No es una función válida' });
+        appLogger.warn('⚠️ Cookie parser no es una función válida', {
+          middleware: 'cookie-parser',
+          status: 'failed',
+          reason: 'No es una función válida'
+        });
         console.warn('⚠️ Cookie parser no es una función válida');
       }
     } catch (error) {
-      applicationLog.logMiddlewareSetup('Cookie parser', false, error);
+      appLogger.error('⚠️ No se pudo cargar cookie-parser', error.stack, {
+        middleware: 'cookie-parser',
+        status: 'failed',
+        error: error.message
+      });
       console.warn('⚠️ No se pudo cargar cookie-parser:', error.message);
     }
 
@@ -192,11 +213,13 @@ export async function bootstrap() {
     // Iniciar servidor
     await app.listen(port, host);
 
-    // Usar el logger de la aplicación para el log del servidor iniciado
-    applicationLog.logServerStart({
+    // Log del servidor iniciado
+    appLogger.log('🎉 Servidor iniciado exitosamente', {
+      event: 'server_started',
       port,
       host,
-      environment: environmentConfig.environment
+      environment: environmentConfig.environment,
+      timestamp: new Date().toISOString()
     });
 
     console.log(`\n🎉 === SERVIDOR INICIADO EXITOSAMENTE ===`);
@@ -210,7 +233,7 @@ export async function bootstrap() {
     setTimeout(async () => {
       const postStartCheck = await checkPortStatus(port, host);
 
-      appLogger.info('🔬 Verificación post-inicio completada', {
+      appLogger.log('🔬 Verificación post-inicio completada', {
         event: 'post_start_check',
         port,
         host,
@@ -228,7 +251,7 @@ export async function bootstrap() {
         });
         console.log(`⚠️ ADVERTENCIA: El servidor dice que inició pero el puerto ${port} no está ocupado`);
       } else {
-        appLogger.info('🎯 Servidor funcionando correctamente', {
+        appLogger.log('🎯 Servidor funcionando correctamente', {
           event: 'server_confirmed',
           port,
           host
@@ -239,11 +262,17 @@ export async function bootstrap() {
 
     // *** CONFIGURAR MANEJO DE SEÑALES ***
     const gracefulShutdown = (signal: string) => {
-      applicationLog.logSignalReceived(signal, { port, host, environment: environmentConfig.environment });
+      appLogger.log(`📴 Señal ${signal} recibida - cerrando aplicación gracefully...`, {
+        event: 'signal_received',
+        signal,
+        port,
+        host,
+        environment: environmentConfig.environment
+      });
       console.log(`\n📴 Señal ${signal} recibida - cerrando aplicación gracefully...`);
 
       app.close().then(() => {
-        appLogger.info('✅ Aplicación cerrada correctamente', {
+        appLogger.log('✅ Aplicación cerrada correctamente', {
           event: 'graceful_shutdown_complete',
           signal,
           timestamp: new Date().toISOString()
@@ -251,7 +280,7 @@ export async function bootstrap() {
         console.log('✅ Aplicación cerrada correctamente');
         process.exit(0);
       }).catch((error) => {
-        appLogger.error('❌ Error durante el cierre de la aplicación', error, {
+        appLogger.error('❌ Error durante el cierre de la aplicación', error.stack, {
           event: 'graceful_shutdown_error',
           signal
         });
@@ -269,7 +298,8 @@ export async function bootstrap() {
     const port = isProduction ? 8080 : 3000;
 
     // Log estructurado del error
-    applicationLog.logFatalError(error, 'Bootstrap', {
+    logger.error('❌ Error fatal durante el bootstrap', error.stack, {
+      event: 'fatal_bootstrap_error',
       config: {
         port,
         isProduction,
@@ -282,14 +312,19 @@ export async function bootstrap() {
     console.error('💥 Error:', error.message);
 
     if (error.code === 'EADDRINUSE') {
-      applicationLog.logPortUsageHelp(port);
+      logger.error(`🚫 Puerto ${port} ya está en uso`, {
+        event: 'port_in_use_error',
+        port,
+        errorCode: 'EADDRINUSE'
+      });
+
       console.error(`🚫 ¡PUERTO ${port} YA ESTÁ EN USO!`);
       console.error(`📋 Para liberar el puerto ${port}, ejecuta:`);
       console.error(`   🔧 npx kill-port ${port}`);
       console.error(`   🔧 lsof -ti:${port} | xargs kill -9`);
       console.error(`   🔧 netstat -tulpn | grep :${port}`);
     } else if (error.code === 'EACCES') {
-      bootstrapLogger.error(`🚫 Sin permisos para puerto ${port}`, {
+      logger.error(`🚫 Sin permisos para puerto ${port}`, {
         event: 'port_permission_error',
         port,
         errorCode: 'EACCES'
@@ -298,7 +333,7 @@ export async function bootstrap() {
       console.error(`🚫 Sin permisos para usar el puerto ${port}`);
       console.error(`💡 Prueba ejecutar como administrador o usa un puerto > 1024`);
     } else {
-      bootstrapLogger.error(`🤔 Error desconocido en bootstrap`, {
+      logger.error('🤔 Error desconocido en bootstrap', {
         event: 'unknown_bootstrap_error',
         errorCode: error.code || 'Sin código',
         errorMessage: error.message

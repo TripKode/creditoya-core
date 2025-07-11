@@ -15,7 +15,6 @@ import { LoanManagementService } from './services/loan-managment.service';
 import { QueryService } from './services/query.service';
 import { StatusService } from './services/status.service';
 import { UtilityService } from './services/utility.service';
-import { LoggerModule } from 'src/logger/logger.module';
 
 @Module({
   imports: [
@@ -24,7 +23,6 @@ import { LoggerModule } from 'src/logger/logger.module';
     PdfsModule,
     GoogleCloudModule,
     CloudinaryModule,
-    LoggerModule,
   ],
   controllers: [LoanController],
   providers: [

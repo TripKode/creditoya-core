@@ -1,25 +1,20 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
 import { User, UsersIntranet } from '@prisma/client';
 import { ClientService } from 'src/client/client.service';
 import { Response } from 'express';
-import { LoggerService } from 'src/logger/logger.service';
 
 @Injectable()
 export class AuthService {
-  private readonly logger: LoggerService;
+  private readonly logger = new Logger(AuthService.name);
 
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
     private clientService: ClientService,
-    loggerService: LoggerService
-  ) {
-    // Crear un logger específico para AuthService
-    this.logger = loggerService.child('AuthService');
-  }
+  ) { }
 
   // Para usuarios normales (clientes)
   async validateClient(email: string, password: string): Promise<User> {
@@ -61,7 +56,7 @@ export class AuthService {
         throw new UnauthorizedException('Su cuenta ha sido suspendida');
       }
 
-      this.logger.info('Cliente validado exitosamente', { 
+      this.logger.debug('Cliente validado exitosamente', { 
         userId: user.id,
         email: user.email,
         userNames: `${user.names} ${user.firstLastName}`
@@ -121,7 +116,7 @@ export class AuthService {
         throw new UnauthorizedException('Su cuenta no está activa');
       }
 
-      this.logger.info('Usuario intranet validado exitosamente', { 
+      this.logger.debug('Usuario intranet validado exitosamente', { 
         userId: user.id,
         email: user.email,
         rol: user.rol,
@@ -180,7 +175,7 @@ export class AuthService {
         }
       }
 
-      this.logger.info('Login de cliente exitoso', { 
+      this.logger.debug('Login de cliente exitoso', { 
         userId: user.id,
         email: user.email,
         userNames: `${user.names} ${user.firstLastName}`,
@@ -249,7 +244,7 @@ export class AuthService {
         }
       }
 
-      this.logger.info('Login de intranet exitoso', { 
+      this.logger.debug('Login de intranet exitoso', { 
         userId: user.id,
         email: user.email,
         rol: user.rol,
@@ -304,7 +299,7 @@ export class AuthService {
         sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
       });
 
-      this.logger.info('Token revocado exitosamente', { 
+      this.logger.debug('Token revocado exitosamente', { 
         userId,
         userType,
         cookieApp,
@@ -366,7 +361,7 @@ export class AuthService {
         throw new UnauthorizedException('Usuario no encontrado');
       }
 
-      this.logger.info('Perfil de cliente obtenido exitosamente', { 
+      this.logger.debug('Perfil de cliente obtenido exitosamente', { 
         userId,
         email: user.email,
         userNames: `${user.names} ${user.firstLastName}`,
@@ -412,7 +407,7 @@ export class AuthService {
         throw new UnauthorizedException('Usuario no encontrado');
       }
 
-      this.logger.info('Perfil de usuario intranet obtenido exitosamente', { 
+      this.logger.debug('Perfil de usuario intranet obtenido exitosamente', { 
         userId,
         email: user.email,
         rol: user.rol,
@@ -451,7 +446,7 @@ export class AuthService {
         throw new Error('Error al crear cliente');
       }
 
-      this.logger.info('Cliente registrado exitosamente', { 
+      this.logger.debug('Cliente registrado exitosamente', { 
         userId: newClient.id,
         email: newClient.email,
         userNames: `${newClient.names} ${newClient.firstLastName}`
@@ -460,7 +455,7 @@ export class AuthService {
       // Realizar login automático después del registro
       const loginResult = await this.loginClient(newClient);
       
-      this.logger.info('Login automático post-registro exitoso', { 
+      this.logger.debug('Login automático post-registro exitoso', { 
         userId: newClient.id,
         email: newClient.email
       });

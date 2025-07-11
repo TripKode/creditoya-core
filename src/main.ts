@@ -1,15 +1,8 @@
+import { Logger } from '@nestjs/common';
 import { bootstrap } from "handlers/main/boostrap";
-import { LoggerService } from "./logger/logger.service";
-import { HttpTransportService } from "./logger/service/http-transport.service";
-import { ApplicationLoggerService } from "./logger/service/application.service";
 
-// Inicializar servicios de logging
-const httpTransport = new HttpTransportService();
-const logger = new LoggerService(httpTransport);
-const applicationLog = new ApplicationLoggerService(logger, httpTransport);
-
-// Establecer contexto para el logger principal
-logger.setContext('MainApplication');
+// Inicializar logger nativo de NestJS
+const logger = new Logger('MainApplication');
 
 // Función para obtener la configuración del puerto según entorno
 function getPortConfig() {
@@ -31,23 +24,29 @@ async function gracefulShutdown(signal: string, exitCode: number = 0) {
   const config = getPortConfig();
   
   try {
-    // Log usando ApplicationLoggerService
-    applicationLog.logSignalReceived(signal, config);
+    // Log usando Logger nativo
+    logger.log(`📴 Señal ${signal} recibida - cerrando aplicación gracefully`, {
+      event: 'signal_received',
+      signal,
+      config,
+      timestamp: new Date().toISOString()
+    });
     
     // Log adicional en consola para mantener compatibilidad
     console.log(`\n📴 === RECIBIDA SEÑAL ${signal} ===`);
     console.log(`🔄 Liberando puerto ${config.port} en ${config.host} y cerrando aplicación...`);
     console.log(`🌐 Entorno: ${config.environment}`);
     
-    // Flush de logs pendientes antes de cerrar
-    await httpTransport.forceFlush();
-    
-    // Cerrar el logger de manera elegante
-    await logger.close();
+    logger.log('✅ Aplicación cerrada correctamente', {
+      event: 'graceful_shutdown_complete',
+      signal,
+      exitCode
+    });
     
     console.log('🔄 Aplicación cerrada correctamente');
     process.exit(exitCode);
   } catch (error) {
+    logger.error('❌ Error durante el cierre de la aplicación', error.stack);
     console.error('❌ Error durante el cierre:', error);
     process.exit(1);
   }
@@ -75,8 +74,9 @@ process.on('uncaughtException', async (error) => {
   const config = getPortConfig();
 
   try {
-    // Log usando ApplicationLoggerService
-    applicationLog.logFatalError(error, 'UncaughtException', {
+    // Log usando Logger nativo
+    logger.error('💥 Excepción no capturada', error.stack, {
+      event: 'uncaught_exception',
       config,
       processInfo: {
         cwd: process.cwd(),
@@ -86,17 +86,11 @@ process.on('uncaughtException', async (error) => {
       }
     });
 
-    // Flush logs antes de salir
-    await httpTransport.forceFlush();
-    
     // Mantener logs de consola para compatibilidad
     console.error('\n💥 === EXCEPCIÓN NO CAPTURADA ===');
     console.error('Error:', error);
     console.error('Stack:', error.stack);
     console.error(`🔧 Entorno: ${config.environment} (${config.host}:${config.port})`);
-    
-    // Cerrar logger
-    await logger.close();
     
   } catch (logError) {
     console.error('❌ Error adicional durante el logging:', logError);
@@ -109,8 +103,9 @@ process.on('unhandledRejection', async (reason, promise) => {
   const config = getPortConfig();
 
   try {
-    // Log usando ApplicationLoggerService
-    applicationLog.logFatalError(reason, 'UnhandledRejection', {
+    // Log usando Logger nativo
+    logger.error('💥 Promesa rechazada no manejada', (reason as any)?.stack || String(reason), {
+      event: 'unhandled_rejection',
       config,
       promise: promise.toString(),
       processInfo: {
@@ -121,16 +116,10 @@ process.on('unhandledRejection', async (reason, promise) => {
       }
     });
 
-    // Flush logs antes de salir
-    await httpTransport.forceFlush();
-    
     console.error('\n💥 === PROMESA RECHAZADA NO MANEJADA ===');
     console.error('Razón:', reason);
     console.error('Promesa:', promise);
     console.error(`🔧 Entorno: ${config.environment} (${config.host}:${config.port})`);
-    
-    // Cerrar logger
-    await logger.close();
     
   } catch (logError) {
     console.error('❌ Error adicional durante el logging:', logError);
@@ -144,8 +133,8 @@ process.on('SIGTERM', async () => {
   const config = getPortConfig();
 
   try {
-    // Log usando el logger principal
-    logger.info('🐳 Señal de contenedor Docker/K8S recibida', {
+    // Log usando el logger nativo
+    logger.log('🐳 Señal de contenedor Docker/K8S recibida', {
       event: 'docker_k8s_signal',
       config,
       timestamp: new Date().toISOString()
@@ -154,12 +143,9 @@ process.on('SIGTERM', async () => {
     console.log('\n🐳 === SEÑAL DE CONTENEDOR DOCKER/K8S ===');
     console.log(`🔄 Cerrando aplicación ${config.environment} gracefully...`);
     console.log(`📋 Puerto ${config.port} en ${config.host} será liberado`);
-
-    // Flush logs y cerrar
-    await httpTransport.forceFlush();
-    await logger.close();
     
   } catch (error) {
+    logger.error('❌ Error durante cierre de contenedor', error.stack);
     console.error('❌ Error durante cierre de contenedor:', error);
   }
   
@@ -171,8 +157,12 @@ async function initializeApplication() {
   const config = getPortConfig();
 
   try {
-    // Log de configuración inicial usando ApplicationLoggerService
-    applicationLog.logConfigurationStart(config);
+    // Log de configuración inicial usando Logger nativo
+    logger.log('🚀 Iniciando configuración de aplicación', {
+      event: 'configuration_start',
+      config,
+      timestamp: new Date().toISOString()
+    });
 
     // Mantener logs de consola para compatibilidad visual
     console.log('\n🚀 === CONFIGURACIÓN INICIAL ===');
@@ -184,13 +174,13 @@ async function initializeApplication() {
 
     // Logs específicos por entorno
     if (config.nodeEnv === 'development') {
-      logger.info('🔧 Ejecutando en modo desarrollo local', {
+      logger.log('🔧 Ejecutando en modo desarrollo local', {
         event: 'development_mode',
         config
       });
       console.log('🔧 Ejecutando en modo desarrollo local');
     } else if (config.nodeEnv === 'production') {
-      logger.info('🚀 Ejecutando en modo producción', {
+      logger.log('🚀 Ejecutando en modo producción', {
         event: 'production_mode',
         config
       });
@@ -205,22 +195,26 @@ async function initializeApplication() {
     }
 
     // Log de inicio de bootstrap
-    applicationLog.logBootstrapStart();
+    logger.log('🏁 Iniciando bootstrap de aplicación', {
+      event: 'bootstrap_start',
+      config
+    });
     console.log('\n🏁 === INICIANDO BOOTSTRAP ===');
 
     // Ejecutar bootstrap
     await bootstrap();
     
     // Log de éxito del bootstrap
-    logger.info('✅ Bootstrap completado exitosamente', {
+    logger.log('✅ Bootstrap completado exitosamente', {
       event: 'bootstrap_success',
       config,
       timestamp: new Date().toISOString()
     });
 
   } catch (error) {
-    // Log de error fatal usando ApplicationLoggerService
-    applicationLog.logFatalError(error, 'Bootstrap', {
+    // Log de error fatal usando Logger nativo
+    logger.error('💥 Error fatal en bootstrap', error.stack, {
+      event: 'fatal_bootstrap_error',
       config,
       debugInfo: {
         cwd: process.cwd(),
@@ -243,14 +237,6 @@ async function initializeApplication() {
     console.error(`📦 Args: ${process.argv.join(' ')}`);
     console.error(`⏱️ Uptime: ${process.uptime()}s`);
 
-    // Flush logs antes de salir
-    try {
-      await httpTransport.forceFlush();
-      await logger.close();
-    } catch (logError) {
-      console.error('❌ Error adicional cerrando logger:', logError);
-    }
-
     process.exit(1);
   }
 }
@@ -261,7 +247,5 @@ initializeApplication();
 // Exportar servicios para uso en otros módulos si es necesario
 export {
   logger,
-  httpTransport,
-  applicationLog,
   getPortConfig
 };

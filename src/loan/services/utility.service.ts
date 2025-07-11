@@ -1,18 +1,16 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { StatusLoan } from "@prisma/client";
 import { GoogleCloudService } from "src/gcp/gcp.service";
-import { LoggerService } from "src/logger/logger.service";
 import { PrismaService } from "src/prisma/prisma.service";
 
 @Injectable()
 export class UtilityService {
+    private logger = new Logger(UtilityService.name);
+
     constructor(
         private readonly prisma: PrismaService,
-        private readonly logger: LoggerService,
-        private readonly gcp: GoogleCloudService
-    ) {
-        this.logger.setContext('loanUtilityService')
-    }
+        private readonly gcp: GoogleCloudService,
+    ) { }
 
     /**
      * Función auxiliar para búsqueda avanzada de préstamos por nombre del usuario

@@ -1,17 +1,14 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
-import { LoggerService } from "src/logger/logger.service";
+import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { MailService } from "src/mail/mail.service";
 import { PrismaService } from "src/prisma/prisma.service";
 
 @Injectable()
 export class LoanDisbursementService {
+    private logger = new Logger(LoanDisbursementService.name);
     constructor(
         private readonly prisma: PrismaService,
         private readonly mail: MailService,
-        private logger: LoggerService
-    ) {
-        this.logger.setContext('LoanDisbursementService')
-    }
+    ) { }
 
     async disburseLoan(id: string) {
         try {
