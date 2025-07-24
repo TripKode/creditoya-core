@@ -435,38 +435,21 @@ export class AuthService {
       names: data.names
     });
 
-    try {
-      const newClient = await this.clientService.create(data);
-      
-      if (!newClient) {
-        this.logger.error('Error al crear cliente en clientService', null, { 
-          email: data.email,
-          operation: 'registerClient'
-        });
-        throw new Error('Error al crear cliente');
-      }
+    // No atrapar el error, dejar que se propague
+    const newClient = await this.clientService.create(data);
+    this.logger.debug('Cliente registrado exitosamente', { 
+      userId: newClient.id,
+      email: newClient.email,
+      userNames: `${newClient.names} ${newClient.firstLastName}`
+    });
 
-      this.logger.debug('Cliente registrado exitosamente', { 
-        userId: newClient.id,
-        email: newClient.email,
-        userNames: `${newClient.names} ${newClient.firstLastName}`
-      });
+    // Realizar login automático después del registro
+    const loginResult = await this.loginClient(newClient);
+    this.logger.debug('Login automático post-registro exitoso', { 
+      userId: newClient.id,
+      email: newClient.email
+    });
 
-      // Realizar login automático después del registro
-      const loginResult = await this.loginClient(newClient);
-      
-      this.logger.debug('Login automático post-registro exitoso', { 
-        userId: newClient.id,
-        email: newClient.email
-      });
-
-      return loginResult;
-    } catch (error) {
-      this.logger.error('Error durante registro de cliente', error, { 
-        email: data.email,
-        operation: 'registerClient'
-      });
-      throw error;
-    }
+    return loginResult;
   }
 }

@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, ConflictException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { User, Document, Prisma } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
@@ -35,11 +35,11 @@ export class ClientService {
     });
 
     if (existEmail) {
-      throw new Error('El correo electrónico ya está en uso');
+      throw new ConflictException('El correo electrónico ya está en uso');
     }
 
     if (data.password.length < 6) {
-      throw new Error("La contraseña debe tener minimo 6 caracteres");
+      throw new BadRequestException('La contraseña debe tener mínimo 6 caracteres');
     }
 
     const hashedPassword = await bcrypt.hash(data.password, 10);
