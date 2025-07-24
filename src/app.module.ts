@@ -13,6 +13,7 @@ import { AuthModule } from './auth/auth.module';
 import { BackupModule } from './backup/backup.module';
 import { PdfsModule } from './pdfs/pdfs.module';
 import { PasswordResetModule } from './password-reset/password-reset.module';
+import { CustomLoggerService } from './services/logger.service';
 
 @Module({
   imports: [
@@ -30,6 +31,10 @@ import { PasswordResetModule } from './password-reset/password-reset.module';
     PasswordResetModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    CustomLoggerService
+  ],
+  exports: [CustomLoggerService],
 })
 export class AppModule {}

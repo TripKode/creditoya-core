@@ -1,8 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { bootstrap } from "handlers/main/boostrap";
 
-// Inicializar logger nativo de NestJS
-const logger = new Logger('MainApplication');
+const logger = new Logger();
 
 // Función para obtener la configuración del puerto según entorno
 function getPortConfig() {
@@ -126,30 +125,6 @@ process.on('unhandledRejection', async (reason, promise) => {
   }
   
   process.exit(1);
-});
-
-// Manejo especial para DOCKER/Kubernetes
-process.on('SIGTERM', async () => {
-  const config = getPortConfig();
-
-  try {
-    // Log usando el logger nativo
-    logger.log('🐳 Señal de contenedor Docker/K8S recibida', {
-      event: 'docker_k8s_signal',
-      config,
-      timestamp: new Date().toISOString()
-    });
-
-    console.log('\n🐳 === SEÑAL DE CONTENEDOR DOCKER/K8S ===');
-    console.log(`🔄 Cerrando aplicación ${config.environment} gracefully...`);
-    console.log(`📋 Puerto ${config.port} en ${config.host} será liberado`);
-    
-  } catch (error) {
-    logger.error('❌ Error durante cierre de contenedor', error.stack);
-    console.error('❌ Error durante cierre de contenedor:', error);
-  }
-  
-  process.exit(0);
 });
 
 // Inicialización de la aplicación
