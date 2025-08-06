@@ -78,6 +78,9 @@ export async function bootstrap() {
     const customLogger = app.get(CustomLoggerService);
     app.useLogger(customLogger);
 
+    // Verificar estado del logging externo
+    const isExternalLoggingEnabled = customLogger.isExternalLoggingEnabled();
+
     // Desde aquí, usar el logger personalizado que enviará logs al servidor
     customLogger.log('✅ Aplicación NestJS creada exitosamente', 'Bootstrap');
     customLogger.logWithMetadata('info', 'Aplicación NestJS iniciada', {
@@ -89,7 +92,15 @@ export async function bootstrap() {
     }, 'Bootstrap');
 
     console.log('✅ Aplicación NestJS creada exitosamente');
-    console.log('✅ Logger personalizado configurado - enviando logs al servidor externo');
+    
+    // Mostrar estado del logging externo según el entorno
+    if (isProduction) {
+      console.log('🚫 Logger personalizado configurado - envío de logs al servidor externo DESHABILITADO (PRODUCCIÓN)');
+    } else {
+      console.log('✅ Logger personalizado configurado - enviando logs al servidor externo');
+    }
+    
+    console.log(`📊 Estado del logging externo: ${isExternalLoggingEnabled ? 'HABILITADO' : 'DESHABILITADO'}`);
 
     // Middleware response-time con manejo de errores
     console.log('\n🔧 === CONFIGURANDO MIDDLEWARES ===');

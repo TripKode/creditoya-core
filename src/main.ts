@@ -154,12 +154,14 @@ async function initializeApplication() {
         config
       });
       console.log('🔧 Ejecutando en modo desarrollo local');
+      console.log('📤 Envío de logs al servidor externo: HABILITADO');
     } else if (config.nodeEnv === 'production') {
       logger.log('🚀 Ejecutando en modo producción', {
         event: 'production_mode',
         config
       });
       console.log('🚀 Ejecutando en modo producción');
+      console.log('🚫 Envío de logs al servidor externo: DESHABILITADO (PRODUCCIÓN)');
     } else {
       logger.warn(`⚠️ NODE_ENV personalizado: ${config.nodeEnv} (usando config de desarrollo)`, {
         event: 'custom_node_env',
@@ -167,6 +169,7 @@ async function initializeApplication() {
         config
       });
       console.log(`⚠️ NODE_ENV personalizado: ${config.nodeEnv} (usando config de desarrollo)`);
+      console.log('📤 Envío de logs al servidor externo: HABILITADO (modo desarrollo)');
     }
 
     // Log de inicio de bootstrap

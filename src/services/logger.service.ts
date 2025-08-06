@@ -55,6 +55,7 @@ export class CustomLoggerService extends ConsoleLogger implements LoggerService 
     private readonly version: string;
     private readonly serviceName: string;
     private readonly sourceId: string;
+    private readonly enableExternalLogging: boolean; // Nueva propiedad para controlar envío externo
     private batchTimer?: NodeJS.Timeout;
     private currentTraceId?: string;
     private currentUserId?: string;
@@ -78,8 +79,20 @@ export class CustomLoggerService extends ConsoleLogger implements LoggerService 
         this.serviceName = process.env.SERVICE_NAME || 'nestjs-app';
         this.sourceId = process.env.SOURCE_ID || `devs-core-creditoya-786bfgrt`;
 
-        // Iniciar el timer de batch
-        this.startBatchTimer();
+        // Deshabilitar envío de logs al servidor externo en producción
+        this.enableExternalLogging = this.environment !== 'production';
+
+        // Log de configuración
+        if (this.enableExternalLogging) {
+            super.log('✅ Envío de logs al servidor externo habilitado', 'CustomLogger');
+        } else {
+            super.log('🚫 Envío de logs al servidor externo deshabilitado (PRODUCCIÓN)', 'CustomLogger');
+        }
+
+        // Solo iniciar el timer de batch si el logging externo está habilitado
+        if (this.enableExternalLogging) {
+            this.startBatchTimer();
+        }
     }
 
     // Método para establecer contexto de tracking
@@ -174,6 +187,11 @@ export class CustomLoggerService extends ConsoleLogger implements LoggerService 
     }
 
     private async flushLogs() {
+        // No hacer nada si el logging externo está deshabilitado
+        if (!this.enableExternalLogging) {
+            return;
+        }
+
         if (this.logBuffer.length === 0) {
             this.startBatchTimer();
             return;
@@ -294,6 +312,11 @@ export class CustomLoggerService extends ConsoleLogger implements LoggerService 
     }
 
     private addToBuffer(logEntry: LogEntry) {
+        // Solo agregar al buffer si el logging externo está habilitado
+        if (!this.enableExternalLogging) {
+            return;
+        }
+
         this.logBuffer.push(logEntry);
 
         // Si el buffer está lleno, enviar inmediatamente
@@ -378,6 +401,11 @@ export class CustomLoggerService extends ConsoleLogger implements LoggerService 
 
     // Método para forzar el envío de logs pendientes
     async forceFlush(): Promise<void> {
+        // No hacer nada si el logging externo está deshabilitado
+        if (!this.enableExternalLogging) {
+            return;
+        }
+
         if (this.batchTimer) {
             clearTimeout(this.batchTimer);
         }
@@ -394,12 +422,19 @@ export class CustomLoggerService extends ConsoleLogger implements LoggerService 
         return {
             currentBufferSize: this.logBuffer.length,
             maxBufferSize: this.batchSize,
-            bufferUtilization: (this.logBuffer.length / this.batchSize) * 100
+            bufferUtilization: (this.logBuffer.length / this.batchSize) * 100,
+            externalLoggingEnabled: this.enableExternalLogging
         };
     }
 
     // Método para probar la conexión con el servidor
     async testConnection(): Promise<boolean> {
+        // No hacer test si el logging externo está deshabilitado
+        if (!this.enableExternalLogging) {
+            super.log('🚫 Test de conexión omitido - logging externo deshabilitado', 'CustomLogger');
+            return false;
+        }
+
         try {
             const testLog = this.createLogEntry('info', 'Test de conexión', 'CustomLogger');
             const testBatch = this.createLogBatch([testLog]);
@@ -414,8 +449,19 @@ export class CustomLoggerService extends ConsoleLogger implements LoggerService 
         }
     }
 
+    // Método para verificar si el logging externo está habilitado
+    isExternalLoggingEnabled(): boolean {
+        return this.enableExternalLogging;
+    }
+
     // Método para debug - mostrar estructura del próximo envío
     debugNextBatch() {
+        // No hacer debug si el logging externo está deshabilitado
+        if (!this.enableExternalLogging) {
+            super.log('🚫 Debug de batch omitido - logging externo deshabilitado', 'CustomLogger');
+            return;
+        }
+
         if (this.logBuffer.length === 0) {
             super.log('📋 Buffer vacío', 'CustomLogger');
             return;
