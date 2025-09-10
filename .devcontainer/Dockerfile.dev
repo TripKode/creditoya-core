@@ -1,0 +1,52 @@
+# Dockerfile optimizado para desarrollo con devcontainers
+FROM node:20-alpine
+
+# Instalar dependencias del sistema necesarias para desarrollo
+RUN apk add --no-cache \
+    git \
+    openssh-client \
+    python3 \
+    make \
+    g++ \
+    openssl \
+    bash \
+    curl \
+    vim \
+    nano
+
+# Crear directorio de trabajo
+WORKDIR /app
+
+# Instalar herramientas globales de desarrollo
+RUN npm install -g \
+    @nestjs/cli \
+    prisma \
+    ts-node \
+    typescript \
+    nodemon
+
+# Copiar archivos de configuración del proyecto
+COPY package*.json ./
+COPY prisma ./prisma/
+
+# Instalar dependencias del proyecto
+RUN npm install
+
+# Generar cliente de Prisma
+RUN npx prisma generate
+
+# Configurar usuario node para desarrollo (ya existe en la imagen base)
+USER node
+
+# Configurar Git (opcional, se puede hacer en postCreateCommand)
+RUN git config --global --add safe.directory /app
+
+# Variables de entorno para desarrollo
+ENV NODE_ENV=development \
+    NPM_CONFIG_CACHE=/tmp/.npm
+
+# Exponer puertos comunes
+EXPOSE 3000 8080 5432
+
+# Comando por defecto para desarrollo (se ejecuta en watch mode)
+CMD ["npm", "run", "start:dev"]
