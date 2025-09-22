@@ -5,6 +5,7 @@ import { CurrentUser } from './decorators/current-user.decorator';
 import { LocalIntranetAuthGuard } from './guards/local-intranet-auth.guard';
 import { ClientAuthGuard } from './guards/client-auth.guard';
 import { IntranetAuthGuard } from './guards/intranet-auth.guard';
+import { DevGuard } from './guards/dev.guard';
 import { Response } from 'express';
 
 @Controller('auth')
@@ -44,6 +45,12 @@ export class AuthController {
   @Post('register/client')
   async registerClient(@Body() userData) {
     return this.authService.registerClient(userData);
+  }
+
+  @UseGuards(DevGuard)
+  @Post('register/intranet')
+  async registerIntranet(@Body() userData) {
+    return this.authService.registerIntranet(userData);
   }
 
   // Verificar autenticación del cliente

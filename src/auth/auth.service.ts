@@ -1,7 +1,7 @@
-import { Injectable, UnauthorizedException, Logger } from '@nestjs/common';
+import { Injectable, UnauthorizedException, Logger, ConflictException, BadRequestException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
-import * as bcrypt from 'bcrypt';
+import * as bcrypt from 'bcryptjs';
 import { User, UsersIntranet } from '@prisma/client';
 import { ClientService } from 'src/client/client.service';
 import { Response } from 'express';
@@ -430,14 +430,14 @@ export class AuthService {
   }
 
   async registerClient(data: User) {
-    this.logger.debug('Iniciando registro de cliente', { 
+    this.logger.debug('Iniciando registro de cliente', {
       email: data.email,
       names: data.names
     });
 
     // No atrapar el error, dejar que se propague
     const newClient = await this.clientService.create(data);
-    this.logger.debug('Cliente registrado exitosamente', { 
+    this.logger.debug('Cliente registrado exitosamente', {
       userId: newClient.id,
       email: newClient.email,
       userNames: `${newClient.names} ${newClient.firstLastName}`
@@ -445,9 +445,59 @@ export class AuthService {
 
     // Realizar login automático después del registro
     const loginResult = await this.loginClient(newClient);
-    this.logger.debug('Login automático post-registro exitoso', { 
+    this.logger.debug('Login automático post-registro exitoso', {
       userId: newClient.id,
       email: newClient.email
+    });
+
+    return loginResult;
+  }
+
+  async registerIntranet(data: any) {
+    this.logger.debug('Iniciando registro de usuario intranet', {
+      email: data.email,
+      name: data.name
+    });
+
+    // Verificar si el email ya existe
+    const existingUser = await this.prisma.usersIntranet.findUnique({
+      where: { email: data.email.trim() },
+    });
+
+    if (existingUser) {
+      throw new ConflictException('El correo electrónico ya está en uso');
+    }
+
+    if (data.password.length < 6) {
+      throw new BadRequestException('La contraseña debe tener mínimo 6 caracteres');
+    }
+
+    const hashedPassword = await this.hashPassword(data.password);
+
+    const newIntranetUser = await this.prisma.usersIntranet.create({
+      data: {
+        name: data.name.trim(),
+        lastNames: data.lastNames.trim(),
+        email: data.email.trim(),
+        password: hashedPassword,
+        phone: data.phone || 'No definido',
+        rol: data.rol || 'No definido',
+        isActive: true, // Activar por defecto en registro de desarrollo
+        avatar: data.avatar || 'No definido',
+      },
+    });
+
+    this.logger.debug('Usuario intranet registrado exitosamente', {
+      userId: newIntranetUser.id,
+      email: newIntranetUser.email,
+      userName: `${newIntranetUser.name} ${newIntranetUser.lastNames}`
+    });
+
+    // Realizar login automático después del registro
+    const loginResult = await this.loginIntranet(newIntranetUser);
+    this.logger.debug('Login automático post-registro exitoso', {
+      userId: newIntranetUser.id,
+      email: newIntranetUser.email
     });
 
     return loginResult;

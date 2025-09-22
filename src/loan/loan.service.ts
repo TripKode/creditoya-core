@@ -119,6 +119,22 @@ export class LoanService {
         userId: data.userId
       });
 
+      // Log específico antes de guardar en LoanApplication
+      this.logger.debug('🏠 [LOAN_SERVICE] Datos a guardar en LoanApplication:', {
+        event: 'saving_to_loan_database',
+        userId: data.userId,
+        city: {
+          value: data.city,
+          type: typeof data.city,
+          willBeSaved: data.city || null
+        },
+        residence_address: {
+          value: data.residence_address,
+          type: typeof data.residence_address,
+          willBeSaved: data.residence_address || null
+        }
+      });
+
       const newLoan = await this.prisma.loanApplication.create({
         data: {
           // Conectar con el usuario usando el ID
@@ -148,6 +164,21 @@ export class LoanService {
           upid_labor_card: data.upid_labor_card || null,
         },
         include: { user: true },
+      });
+
+      // Log específico después de guardar en LoanApplication
+      this.logger.debug('🏠 [LOAN_SERVICE] Datos guardados en LoanApplication:', {
+        event: 'saved_to_loan_database',
+        loanId: newLoan.id,
+        userId: data.userId,
+        city: {
+          saved: newLoan.city,
+          type: typeof newLoan.city
+        },
+        residence_address: {
+          saved: newLoan.residence_address,
+          type: typeof newLoan.residence_address
+        }
       });
 
       this.logger.debug('Préstamo creado exitosamente en base de datos', {
@@ -287,6 +318,26 @@ export class LoanService {
     try {
       this.logger.debug("Iniciando pre-creación de solicitud de préstamo");
 
+      // Log específico para city y residence_address
+      this.logger.debug('🏠 [LOAN_SERVICE] Campos de ubicación recibidos en preCreate:', {
+        event: 'location_fields_received',
+        userId: data.userId,
+        city: {
+          original: data.city,
+          type: typeof data.city,
+          isEmpty: data.city === '',
+          isUndefined: data.city === undefined,
+          isNull: data.city === null
+        },
+        residence_address: {
+          original: data.residence_address,
+          type: typeof data.residence_address,
+          isEmpty: data.residence_address === '',
+          isUndefined: data.residence_address === undefined,
+          isNull: data.residence_address === null
+        }
+      });
+
       // Validation of required documents
       if (!data.isValorAgregado && !data.fisrt_flyer && !data.second_flyer && !data.third_flyer) {
         this.logger.warn('Documentos requeridos faltantes en pre-creación', {
@@ -379,6 +430,22 @@ export class LoanService {
         tokenLength: token.length
       });
 
+      // Log específico antes de guardar en base de datos
+      this.logger.debug('🏠 [LOAN_SERVICE] Datos a guardar en PreLoanApplication:', {
+        event: 'saving_to_database',
+        userId: data.userId,
+        city: {
+          value: data.city,
+          type: typeof data.city,
+          willBeSaved: data.city
+        },
+        residence_address: {
+          value: data.residence_address,
+          type: typeof data.residence_address,
+          willBeSaved: data.residence_address
+        }
+      });
+
       const preCreatedLoan = await this.prisma.preLoanApplication.create({
         data: {
           userId: data.userId as string,
@@ -402,6 +469,21 @@ export class LoanService {
           token,
         },
         include: { user: true },
+      });
+
+      // Log específico después de guardar en base de datos
+      this.logger.debug('🏠 [LOAN_SERVICE] Datos guardados en PreLoanApplication:', {
+        event: 'saved_to_database',
+        preId: preCreatedLoan.id,
+        userId: data.userId,
+        city: {
+          saved: preCreatedLoan.city,
+          type: typeof preCreatedLoan.city
+        },
+        residence_address: {
+          saved: preCreatedLoan.residence_address,
+          type: typeof preCreatedLoan.residence_address
+        }
       });
 
       this.logger.warn('Pre-solicitud creada exitosamente', {

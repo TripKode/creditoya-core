@@ -87,8 +87,26 @@ export class LoanController {
       throw new HttpException('No autorizado', HttpStatus.FORBIDDEN);
     }
 
+    // Log específico para city y residence_address
+    console.log('🏠 [LOAN_CONTROLLER] Campos de ubicación recibidos:', {
+      city: {
+        original: body.city,
+        type: typeof body.city,
+        isEmpty: body.city === '',
+        isUndefined: body.city === undefined,
+        isNull: body.city === null
+      },
+      residence_address: {
+        original: body.residence_address,
+        type: typeof body.residence_address,
+        isEmpty: body.residence_address === '',
+        isUndefined: body.residence_address === undefined,
+        isNull: body.residence_address === null
+      }
+    });
+
     // Convert undefined to null to match the DTO expectations
-    return this.loan.preCreate({
+    const processedData = {
       fisrt_flyer: files.fisrt_flyer?.[0] || null,  // Changed to match DTO
       second_flyer: files.second_flyer?.[0] || null,
       third_flyer: files.third_flyer?.[0] || null,
@@ -104,7 +122,14 @@ export class LoanController {
       cantity: body.cantity, // This should come from request body
       terms_and_conditions: body.terms_and_conditions === 'true' || body.terms_and_conditions === true, // Ensure boolean type
       isValorAgregado: body.isValorAgregado || undefined, // Optional field
+    };
+
+    console.log('🏠 [LOAN_CONTROLLER] Datos procesados para envío al servicio:', {
+      city: processedData.city,
+      residence_address: processedData.residence_address
     });
+
+    return this.loan.preCreate(processedData);
   }
 
   @UseGuards(ClientAuthGuard)
