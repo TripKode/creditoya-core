@@ -366,7 +366,42 @@ export class ClientService {
   }
 
   async delete(id: string): Promise<User> {
-    return this.prisma.user.delete({ where: { id } });
+    return this.prisma.$transaction(async (tx) => {
+      // First, delete related GeneratedDocuments
+      const loanApplications = await tx.loanApplication.findMany({
+        where: { userId: id },
+        select: { id: true }
+      });
+
+      for (const loan of loanApplications) {
+        await tx.generatedDocuments.deleteMany({
+          where: { loanId: loan.id }
+        });
+        await tx.eventLoanApplication.deleteMany({
+          where: { loanId: loan.id }
+        });
+      }
+
+      // Delete LoanApplications
+      await tx.loanApplication.deleteMany({
+        where: { userId: id }
+      });
+
+      // Delete PreLoanApplications
+      await tx.preLoanApplication.deleteMany({
+        where: { userId: id }
+      });
+
+      // Delete Documents
+      await tx.document.deleteMany({
+        where: { userId: id }
+      });
+
+      // Finally, delete the User
+      return tx.user.delete({
+        where: { id }
+      });
+    });
   }
 
   async signin(email: string, password: string): Promise<User> {

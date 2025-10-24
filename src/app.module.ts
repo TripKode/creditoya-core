@@ -14,6 +14,7 @@ import { BackupModule } from './backup/backup.module';
 import { PdfsModule } from './pdfs/pdfs.module';
 import { PasswordResetModule } from './password-reset/password-reset.module';
 import { CustomLoggerService } from './services/logger.service';
+import { McpModule } from './mcp/mcp.module';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { CustomLoggerService } from './services/logger.service';
     BackupModule,
     PdfsModule,
     PasswordResetModule,
+    McpModule,
   ],
   controllers: [AppController],
   providers: [
