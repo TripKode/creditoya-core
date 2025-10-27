@@ -38,7 +38,22 @@ import { QueryService } from './services/query.service';
 import { LoanManagementService } from './services/loan-managment.service';
 import { StatusService } from './services/status.service';
 import { LoanDocumentService } from './services/document.service';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiParam,
+  ApiQuery,
+  ApiBearerAuth,
+  ApiConsumes,
+  ApiBody,
+  ApiUnauthorizedResponse,
+  ApiForbiddenResponse,
+  ApiNotFoundResponse,
+  ApiBadRequestResponse
+} from '@nestjs/swagger';
 
+@ApiTags('loans')
 @Controller('loans')
 export class LoanController {
   private logger = new Logger(LoanController.name);
@@ -61,6 +76,35 @@ export class LoanController {
     { name: 'third_flyer', maxCount: 1 }
   ])
   )
+  @ApiOperation({ summary: 'Pre-crear solicitud de préstamo con documentos' })
+  @ApiParam({ name: 'userId', description: 'ID del usuario cliente' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    description: 'Datos del préstamo y documentos',
+    schema: {
+      type: 'object',
+      properties: {
+        signature: { type: 'string', description: 'Firma digital' },
+        entity: { type: 'string', description: 'Entidad financiera' },
+        phone: { type: 'string', description: 'Teléfono de contacto' },
+        city: { type: 'string', description: 'Ciudad (opcional)' },
+        residence_address: { type: 'string', description: 'Dirección de residencia (opcional)' },
+        bankNumberAccount: { type: 'string', description: 'Número de cuenta bancaria' },
+        cantity: { type: 'string', description: 'Cantidad solicitada' },
+        terms_and_conditions: { type: 'boolean', description: 'Aceptación de términos y condiciones' },
+        isValorAgregado: { type: 'boolean', description: 'Valor agregado (opcional)' },
+        labor_card: { type: 'string', format: 'binary', description: 'Carta laboral' },
+        fisrt_flyer: { type: 'string', format: 'binary', description: 'Primer volante de pago' },
+        second_flyer: { type: 'string', format: 'binary', description: 'Segundo volante de pago' },
+        third_flyer: { type: 'string', format: 'binary', description: 'Tercer volante de pago' }
+      }
+    }
+  })
+  @ApiBearerAuth()
+  @ApiResponse({ status: 201, description: 'Solicitud pre-creada exitosamente' })
+  @ApiUnauthorizedResponse({ description: 'No autenticado' })
+  @ApiForbiddenResponse({ description: 'No autorizado' })
+  @ApiBadRequestResponse({ description: 'Datos inválidos o archivos faltantes' })
   async PreCreateLoan(
     @Param('userId', ParseUUIDPipe) userId: string,
     @Body() body: {
@@ -134,6 +178,15 @@ export class LoanController {
 
   @UseGuards(ClientAuthGuard)
   @Post(":userId/:pre_id")
+  @ApiOperation({ summary: 'Verificar pre-creación de préstamo con token' })
+  @ApiParam({ name: 'userId', description: 'ID del usuario cliente' })
+  @ApiParam({ name: 'pre_id', description: 'ID de pre-creación' })
+  @ApiBody({ schema: { type: 'object', properties: { token: { type: 'string', description: 'Token de verificación' } } } })
+  @ApiBearerAuth()
+  @ApiResponse({ status: 200, description: 'Préstamo verificado exitosamente' })
+  @ApiUnauthorizedResponse({ description: 'No autenticado' })
+  @ApiForbiddenResponse({ description: 'No autorizado' })
+  @ApiBadRequestResponse({ description: 'Token inválido o datos incorrectos' })
   async VerifyPreCreateLoan(
     @Param('userId', ParseUUIDPipe) userId: string,
     @Param('pre_id', ParseUUIDPipe) preId: string,
@@ -150,6 +203,12 @@ export class LoanController {
 
   @UseGuards(IntranetAuthGuard)
   @Put(":loanId/disburse")
+  @ApiOperation({ summary: 'Desembolsar préstamo (solo intranet)' })
+  @ApiParam({ name: 'loanId', description: 'ID del préstamo a desembolsar' })
+  @ApiBearerAuth()
+  @ApiResponse({ status: 200, description: 'Préstamo desembolsado exitosamente' })
+  @ApiUnauthorizedResponse({ description: 'No autenticado' })
+  @ApiBadRequestResponse({ description: 'Error en el desembolso' })
   async DisburseLoan(
     @Param('loanId', ParseUUIDPipe) loanId: string,
   ) {
@@ -158,6 +217,16 @@ export class LoanController {
 
   @UseGuards(IntranetAuthGuard)
   @Get()
+  @ApiOperation({ summary: 'Obtener lista paginada de todos los préstamos (solo intranet)' })
+  @ApiQuery({ name: 'page', required: false, description: 'Número de página', example: '1' })
+  @ApiQuery({ name: 'pageSize', required: false, description: 'Tamaño de página', example: '5' })
+  @ApiQuery({ name: 'searchTerm', required: false, description: 'Término de búsqueda' })
+  @ApiQuery({ name: 'orderBy', required: false, description: 'Orden ascendente o descendente', example: 'asc' })
+  @ApiQuery({ name: 'filterByAmount', required: false, description: 'Filtrar por cantidad', example: 'false' })
+  @ApiBearerAuth()
+  @ApiResponse({ status: 200, description: 'Lista de préstamos con paginación' })
+  @ApiUnauthorizedResponse({ description: 'No autenticado' })
+  @ApiBadRequestResponse({ description: 'Parámetros inválidos' })
   async findAll(
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
     @Query('pageSize', new DefaultValuePipe(5), ParseIntPipe) pageSize: number,
@@ -175,6 +244,12 @@ export class LoanController {
   // Solo personal de intranet puede ver préstamos pendientes
   @UseGuards(IntranetAuthGuard)
   @Get('pending')
+  @ApiOperation({ summary: 'Obtener préstamos pendientes (solo intranet)' })
+  @ApiQuery({ name: 'page', required: false, description: 'Número de página', example: '1' })
+  @ApiQuery({ name: 'pageSize', required: false, description: 'Tamaño de página', example: '5' })
+  @ApiBearerAuth()
+  @ApiResponse({ status: 200, description: 'Lista de préstamos pendientes' })
+  @ApiUnauthorizedResponse({ description: 'No autenticado' })
   async getPendingLoans(
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
     @Query('pageSize', new DefaultValuePipe(5), ParseIntPipe) pageSize: number,
@@ -185,6 +260,13 @@ export class LoanController {
   // Solo personal de intranet puede ver préstamos aprobados
   @UseGuards(IntranetAuthGuard)
   @Get('approved')
+  @ApiOperation({ summary: 'Obtener préstamos aprobados (solo intranet)' })
+  @ApiQuery({ name: 'page', required: false, description: 'Número de página', example: '1' })
+  @ApiQuery({ name: 'pageSize', required: false, description: 'Tamaño de página', example: '5' })
+  @ApiQuery({ name: 'search', required: false, description: 'Término de búsqueda' })
+  @ApiBearerAuth()
+  @ApiResponse({ status: 200, description: 'Lista de préstamos aprobados' })
+  @ApiUnauthorizedResponse({ description: 'No autenticado' })
   async getApprovedLoans(
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
     @Query('pageSize', new DefaultValuePipe(5), ParseIntPipe) pageSize: number,
@@ -197,6 +279,13 @@ export class LoanController {
 
   @UseGuards(IntranetAuthGuard)
   @Get('disbursed')
+  @ApiOperation({ summary: 'Obtener préstamos desembolsados (solo intranet)' })
+  @ApiQuery({ name: 'page', required: false, description: 'Número de página', example: '1' })
+  @ApiQuery({ name: 'pageSize', required: false, description: 'Tamaño de página', example: '10' })
+  @ApiQuery({ name: 'search', required: false, description: 'Término de búsqueda' })
+  @ApiBearerAuth()
+  @ApiResponse({ status: 200, description: 'Lista de préstamos desembolsados' })
+  @ApiUnauthorizedResponse({ description: 'No autenticado' })
   async getDisbursedLoans(
     @Query('page') page: string = '1',
     @Query('pageSize') pageSize: string = '10',
@@ -242,6 +331,13 @@ export class LoanController {
   // Solo personal de intranet puede ver préstamos diferidos
   @UseGuards(IntranetAuthGuard)
   @Get('deferred')
+  @ApiOperation({ summary: 'Obtener préstamos diferidos (solo intranet)' })
+  @ApiQuery({ name: 'page', required: false, description: 'Número de página', example: '1' })
+  @ApiQuery({ name: 'pageSize', required: false, description: 'Tamaño de página', example: '5' })
+  @ApiQuery({ name: 'search', required: false, description: 'Término de búsqueda' })
+  @ApiBearerAuth()
+  @ApiResponse({ status: 200, description: 'Lista de préstamos diferidos' })
+  @ApiUnauthorizedResponse({ description: 'No autenticado' })
   async getDeferredLoans(
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
     @Query('pageSize', new DefaultValuePipe(5), ParseIntPipe) pageSize: number,
@@ -253,6 +349,13 @@ export class LoanController {
   // Solo personal de intranet puede ver préstamos con nueva cantidad definida
   @UseGuards(IntranetAuthGuard)
   @Get('new-cantity')
+  @ApiOperation({ summary: 'Obtener préstamos con nueva cantidad definida (solo intranet)' })
+  @ApiQuery({ name: 'page', required: false, description: 'Número de página', example: '1' })
+  @ApiQuery({ name: 'pageSize', required: false, description: 'Tamaño de página', example: '5' })
+  @ApiQuery({ name: 'search', required: false, description: 'Término de búsqueda' })
+  @ApiBearerAuth()
+  @ApiResponse({ status: 200, description: 'Lista de préstamos con nueva cantidad' })
+  @ApiUnauthorizedResponse({ description: 'No autenticado' })
   async getLoansWithDefinedNewCantity(
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
     @Query('pageSize', new DefaultValuePipe(5), ParseIntPipe) pageSize: number,
@@ -263,6 +366,14 @@ export class LoanController {
 
   @UseGuards(CombinedAuthGuard)
   @Get(':user_id/:loan_id/info')
+  @ApiOperation({ summary: 'Obtener información detallada de un préstamo' })
+  @ApiParam({ name: 'user_id', description: 'ID del usuario' })
+  @ApiParam({ name: 'loan_id', description: 'ID del préstamo' })
+  @ApiBearerAuth()
+  @ApiResponse({ status: 200, description: 'Información del préstamo' })
+  @ApiUnauthorizedResponse({ description: 'No autenticado' })
+  @ApiForbiddenResponse({ description: 'No autorizado para ver este préstamo' })
+  @ApiNotFoundResponse({ description: 'Préstamo no encontrado' })
   async findOne(
     @Param('user_id', ParseUUIDPipe) userId: string,
     @Param('loan_id', ParseUUIDPipe) loanId: string,
@@ -295,6 +406,13 @@ export class LoanController {
 
   @UseGuards(ClientAuthGuard)
   @Get(":user_id/latest")
+  @ApiOperation({ summary: 'Obtener el último préstamo del cliente' })
+  @ApiParam({ name: 'user_id', description: 'ID del usuario cliente' })
+  @ApiBearerAuth()
+  @ApiResponse({ status: 200, description: 'Último préstamo del cliente' })
+  @ApiUnauthorizedResponse({ description: 'No autenticado' })
+  @ApiForbiddenResponse({ description: 'No autorizado' })
+  @ApiNotFoundResponse({ description: 'No se encontró préstamo' })
   async latestLoan(
     @Param('user_id', ParseUUIDPipe) userId: string,
     @CurrentUser() user: any,
@@ -309,6 +427,12 @@ export class LoanController {
 
   @UseGuards(ClientAuthGuard)
   @Get('client/:client_id')
+  @ApiOperation({ summary: 'Obtener todos los préstamos de un cliente' })
+  @ApiParam({ name: 'client_id', description: 'ID del cliente' })
+  @ApiBearerAuth()
+  @ApiResponse({ status: 200, description: 'Lista de préstamos del cliente' })
+  @ApiUnauthorizedResponse({ description: 'No autenticado' })
+  @ApiForbiddenResponse({ description: 'No autorizado' })
   async LoansByClient(
     @Param('client_id') clientId: string,
     @CurrentUser() user: any
@@ -326,6 +450,12 @@ export class LoanController {
   // Clientes pueden ver sus propios préstamos
   @UseGuards(ClientAuthGuard)
   @Get('user/:userId')
+  @ApiOperation({ summary: 'Obtener préstamos por usuario' })
+  @ApiParam({ name: 'userId', description: 'ID del usuario' })
+  @ApiBearerAuth()
+  @ApiResponse({ status: 200, description: 'Lista de préstamos del usuario' })
+  @ApiUnauthorizedResponse({ description: 'No autenticado' })
+  @ApiForbiddenResponse({ description: 'No autorizado' })
   async findByUser(
     @Param('userId', ParseUUIDPipe) userId: string,
     @CurrentUser() user: any
@@ -342,6 +472,14 @@ export class LoanController {
   @UseGuards(IntranetAuthGuard, RolesGuard)
   @Roles('admin', 'employee')
   @Patch(':id')
+  @ApiOperation({ summary: 'Actualizar préstamo (solo admin/employee)' })
+  @ApiParam({ name: 'id', description: 'ID del préstamo' })
+  @ApiBody({ type: UpdateLoanApplicationDto, description: 'Datos a actualizar' })
+  @ApiBearerAuth()
+  @ApiResponse({ status: 200, description: 'Préstamo actualizado exitosamente' })
+  @ApiUnauthorizedResponse({ description: 'No autenticado' })
+  @ApiForbiddenResponse({ description: 'No tiene permisos suficientes' })
+  @ApiBadRequestResponse({ description: 'Datos inválidos' })
   async update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() updateLoanDto: UpdateLoanApplicationDto,
@@ -353,6 +491,14 @@ export class LoanController {
   @UseGuards(IntranetAuthGuard, RolesGuard)
   @Roles('admin', 'employee')
   @Patch(':id/status')
+  @ApiOperation({ summary: 'Cambiar estado del préstamo (solo admin/employee)' })
+  @ApiParam({ name: 'id', description: 'ID del préstamo' })
+  @ApiBody({ type: ChangeLoanStatusDto, description: 'Nuevo estado del préstamo' })
+  @ApiBearerAuth()
+  @ApiResponse({ status: 200, description: 'Estado del préstamo cambiado exitosamente' })
+  @ApiUnauthorizedResponse({ description: 'No autenticado' })
+  @ApiForbiddenResponse({ description: 'No tiene permisos suficientes' })
+  @ApiBadRequestResponse({ description: 'Datos inválidos' })
   async changeStatus(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() changeStatusDto: ChangeLoanStatusDto,
@@ -364,6 +510,14 @@ export class LoanController {
   @UseGuards(IntranetAuthGuard, RolesGuard)
   @Roles('admin', 'employee')
   @Patch(':id/reject')
+  @ApiOperation({ summary: 'Rechazar préstamo (solo admin/employee)' })
+  @ApiParam({ name: 'id', description: 'ID del préstamo' })
+  @ApiBody({ schema: { type: 'object', properties: { reason: { type: 'string', description: 'Razón del rechazo' } } } })
+  @ApiBearerAuth()
+  @ApiResponse({ status: 200, description: 'Préstamo rechazado exitosamente' })
+  @ApiUnauthorizedResponse({ description: 'No autenticado' })
+  @ApiForbiddenResponse({ description: 'No tiene permisos suficientes' })
+  @ApiBadRequestResponse({ description: 'Datos inválidos' })
   async changeReject(
     @Param('id', ParseUUIDPipe) id: string,
     @Body('reason') reason: string,
@@ -375,6 +529,14 @@ export class LoanController {
   @UseGuards(IntranetAuthGuard, RolesGuard)
   @Roles('admin', 'employee')
   @Patch(':id/employee/:employeeId')
+  @ApiOperation({ summary: 'Asignar empleado a préstamo (solo admin/employee)' })
+  @ApiParam({ name: 'id', description: 'ID del préstamo' })
+  @ApiParam({ name: 'employeeId', description: 'ID del empleado a asignar' })
+  @ApiBearerAuth()
+  @ApiResponse({ status: 200, description: 'Empleado asignado exitosamente' })
+  @ApiUnauthorizedResponse({ description: 'No autenticado' })
+  @ApiForbiddenResponse({ description: 'No tiene permisos suficientes' })
+  @ApiBadRequestResponse({ description: 'Datos inválidos' })
   async fillEmployeeId(
     @Param('id', ParseUUIDPipe) id: string,
     @Param('employeeId', ParseUUIDPipe) employeeId: string,
@@ -391,6 +553,14 @@ export class LoanController {
   // Los clientes pueden responder a ofertas de nueva cantidad
   @UseGuards(ClientAuthGuard)
   @Patch(':id/respond-cantity')
+  @ApiOperation({ summary: 'Responder a oferta de nueva cantidad' })
+  @ApiParam({ name: 'id', description: 'ID del préstamo' })
+  @ApiBody({ schema: { type: 'object', properties: { accept: { type: 'boolean', description: 'Aceptar o rechazar la oferta' } } } })
+  @ApiBearerAuth()
+  @ApiResponse({ status: 200, description: 'Respuesta registrada exitosamente' })
+  @ApiUnauthorizedResponse({ description: 'No autenticado' })
+  @ApiForbiddenResponse({ description: 'No autorizado' })
+  @ApiBadRequestResponse({ description: 'Datos inválidos' })
   async respondToNewCantity(
     @Param('id', ParseUUIDPipe) id: string,
     @Body('accept', ParseBoolPipe) accept: boolean,
@@ -410,6 +580,13 @@ export class LoanController {
   @UseGuards(IntranetAuthGuard, RolesGuard)
   @Roles('admin')
   @Delete(':id')
+  @ApiOperation({ summary: 'Eliminar préstamo (solo admin)' })
+  @ApiParam({ name: 'id', description: 'ID del préstamo a eliminar' })
+  @ApiBearerAuth()
+  @ApiResponse({ status: 200, description: 'Préstamo eliminado exitosamente' })
+  @ApiUnauthorizedResponse({ description: 'No autenticado' })
+  @ApiForbiddenResponse({ description: 'No tiene permisos de administrador' })
+  @ApiBadRequestResponse({ description: 'Error al eliminar préstamo' })
   async remove(@Param('id', ParseUUIDPipe) id: string) {
     return this.loanManagment.delete(id);
   }
@@ -417,6 +594,28 @@ export class LoanController {
   @UseGuards(ClientAuthGuard)
   @Post(':loan_id/upload-rejected-document/:document_type')
   @UseInterceptors(FileInterceptor('file'))
+  @ApiOperation({ summary: 'Subir documento rechazado para reemplazo' })
+  @ApiParam({ name: 'loan_id', description: 'ID del préstamo' })
+  @ApiParam({ name: 'document_type', description: 'Tipo de documento', enum: ['fisrt_flyer', 'second_flyer', 'third_flyer', 'labor_card'] })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    description: 'Archivo de documento',
+    schema: {
+      type: 'object',
+      properties: {
+        file: {
+          type: 'string',
+          format: 'binary',
+          description: 'Archivo PDF o imagen'
+        }
+      }
+    }
+  })
+  @ApiBearerAuth()
+  @ApiResponse({ status: 201, description: 'Documento subido exitosamente' })
+  @ApiUnauthorizedResponse({ description: 'No autenticado' })
+  @ApiForbiddenResponse({ description: 'No autorizado' })
+  @ApiBadRequestResponse({ description: 'Archivo inválido o tipo de documento incorrecto' })
   async uploadRejectedDocument(
     @Param('loan_id', ParseUUIDPipe) loanId: string,
     @Param('document_type') documentType: 'fisrt_flyer' | 'second_flyer' | 'third_flyer' | 'labor_card',

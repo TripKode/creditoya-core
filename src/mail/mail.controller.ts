@@ -14,7 +14,16 @@ import {
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { MailService } from './mail.service';
 import { SendCustomEmailDto } from './dto/create-mail.dto';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiConsumes,
+  ApiBody,
+  ApiBadRequestResponse
+} from '@nestjs/swagger';
 
+@ApiTags('mail')
 @Controller('mail')
 export class MailController {
   private readonly logger = new Logger(MailController.name);
@@ -23,6 +32,26 @@ export class MailController {
 
   @Post('send-custom')
   @UseInterceptors(FilesInterceptor('files', 10))
+  @ApiOperation({ summary: 'Enviar correo electrónico personalizado' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    description: 'Datos del correo personalizado con archivos adjuntos',
+    schema: {
+      type: 'object',
+      properties: {
+        email: { type: 'string', description: 'Correo electrónico del destinatario' },
+        subject: { type: 'string', description: 'Asunto del correo' },
+        message: { type: 'string', description: 'Contenido del mensaje' },
+        files: {
+          type: 'array',
+          items: { type: 'string', format: 'binary' },
+          description: 'Archivos adjuntos (máximo 10)'
+        }
+      }
+    }
+  })
+  @ApiResponse({ status: 200, description: 'Correo enviado exitosamente' })
+  @ApiBadRequestResponse({ description: 'Error al enviar el correo' })
   async sendCustomEmail(
     @Body() sendCustomEmailDto: SendCustomEmailDto,
     @UploadedFiles() files?: Express.Multer.File[]
@@ -56,6 +85,31 @@ export class MailController {
 
   @Post('send-announcement')
   @UseInterceptors(FilesInterceptor('bannerImage', 1))
+  @ApiOperation({ summary: 'Enviar correo electrónico de anuncio' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    description: 'Datos del anuncio con imagen opcional',
+    schema: {
+      type: 'object',
+      properties: {
+        subject: { type: 'string', description: 'Asunto del correo' },
+        email: { type: 'string', description: 'Correo electrónico del destinatario' },
+        title: { type: 'string', description: 'Título del anuncio' },
+        message: { type: 'string', description: 'Mensaje principal' },
+        additionalMessages: { type: 'string', description: 'Mensajes adicionales en formato JSON' },
+        recipientName: { type: 'string', description: 'Nombre del destinatario' },
+        priority: { type: 'string', enum: ['high'], description: 'Prioridad del correo' },
+        senderName: { type: 'string', description: 'Nombre del remitente' },
+        bannerImage: {
+          type: 'string',
+          format: 'binary',
+          description: 'Imagen de banner (opcional)'
+        }
+      }
+    }
+  })
+  @ApiResponse({ status: 200, description: 'Correo de anuncio enviado exitosamente' })
+  @ApiBadRequestResponse({ description: 'Error al enviar el correo de anuncio' })
   async sendAnnouncementEmail(
     @Body() announcementData: {
       subject: string;
@@ -114,8 +168,10 @@ export class MailController {
     }
   }
 
-
   @Get('queue-status')
+  @ApiOperation({ summary: 'Obtener estado de la cola de correos' })
+  @ApiResponse({ status: 200, description: 'Estado de la cola obtenido exitosamente' })
+  @ApiBadRequestResponse({ description: 'Error al obtener el estado de la cola' })
   async getQueueStatus() {
     try {
       const status = await this.mailService.getQueueStatus();

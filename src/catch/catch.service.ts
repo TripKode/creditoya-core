@@ -1,6 +1,4 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { CreateCatchDto } from './dto/create-catch.dto';
-import { UpdateCatchDto } from './dto/update-catch.dto';
 
 @Injectable()
 export class CatchService {

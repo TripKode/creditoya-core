@@ -25,6 +25,7 @@ import { QueryService } from './services/query.service';
 import { SkeletonPdfServices } from './services/skeleton.service';
 import { TransformerPDFService } from './services/transformer.service';
 import { DocumentsUploadService } from './services/upload.service';
+import { ApiTags } from '@nestjs/swagger';
 
 @Module({
   imports: [

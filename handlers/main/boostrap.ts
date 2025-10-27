@@ -3,6 +3,7 @@ import { checkPortStatus } from './CheckPorts';
 import { AppModule } from 'src/app.module';
 import { Logger } from '@nestjs/common';
 import { CustomLoggerService } from 'src/services/logger.service';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 
 // Logger nativo de NestJS para bootstrap inicial
 const logger = new Logger('Bootstrap');
@@ -92,15 +93,44 @@ export async function bootstrap() {
     }, 'Bootstrap');
 
     console.log('✅ Aplicación NestJS creada exitosamente');
-    
+
     // Mostrar estado del logging externo según el entorno
     if (isProduction) {
       console.log('🚫 Logger personalizado configurado - envío de logs al servidor externo DESHABILITADO (PRODUCCIÓN)');
     } else {
       console.log('✅ Logger personalizado configurado - enviando logs al servidor externo');
     }
-    
+
     console.log(`📊 Estado del logging externo: ${isExternalLoggingEnabled ? 'HABILITADO' : 'DESHABILITADO'}`);
+
+    // **CONFIGURAR SWAGGER SOLO EN DESARROLLO**
+    if (!isProduction) {
+      console.log('\n📚 === CONFIGURANDO SWAGGER (DESARROLLO) ===');
+      const config = new DocumentBuilder()
+        .setTitle('CreditoYa Core API')
+        .setDescription('API principal del sistema CreditoYa')
+        .setVersion('1.0')
+        .addTag('auth', 'Autenticación y autorización')
+        .addTag('loans', 'Gestión de préstamos')
+        .addTag('clients', 'Gestión de clientes')
+        .addTag('pdfs', 'Generación de PDFs')
+        .addTag('mail', 'Envío de correos')
+        .addTag('cloudinary', 'Gestión de archivos en la nube')
+        .addTag('backup', 'Copias de seguridad')
+        .addTag('dev', 'Herramientas de desarrollo')
+        .addTag('mcp', 'Model Context Protocol')
+        .addTag('password-reset', 'Restablecimiento de contraseña')
+        .build();
+
+      const document = SwaggerModule.createDocument(app, config);
+      SwaggerModule.setup('api', app, document);
+
+      customLogger.log('✅ Swagger configurado en /api (solo desarrollo)', 'Bootstrap');
+      console.log('✅ Swagger configurado en /api (solo desarrollo)');
+    } else {
+      customLogger.log('🚫 Swagger deshabilitado en producción', 'Bootstrap');
+      console.log('🚫 Swagger deshabilitado en producción');
+    }
 
     // Middleware response-time con manejo de errores
     console.log('\n🔧 === CONFIGURANDO MIDDLEWARES ===');

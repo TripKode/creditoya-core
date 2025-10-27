@@ -1,11 +1,21 @@
 import { Controller, Post, Body, Get } from '@nestjs/common';
 import { McpService } from './mcp.service';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBody,
+  ApiBadRequestResponse
+} from '@nestjs/swagger';
 
+@ApiTags('mcp')
 @Controller('mcp')
 export class McpController {
   constructor(private readonly mcpService: McpService) {}
 
   @Get('tools')
+  @ApiOperation({ summary: 'Listar herramientas disponibles en MCP' })
+  @ApiResponse({ status: 200, description: 'Lista de herramientas MCP disponibles' })
   async listTools() {
     const server = this.mcpService.getServer();
     // Para HTTP, necesitamos adaptar el manejo de MCP
@@ -18,6 +28,18 @@ export class McpController {
   }
 
   @Post('call')
+  @ApiOperation({ summary: 'Ejecutar una herramienta MCP' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Nombre de la herramienta' },
+        arguments: { type: 'object', description: 'Argumentos de la herramienta' }
+      }
+    }
+  })
+  @ApiResponse({ status: 200, description: 'Herramienta ejecutada exitosamente' })
+  @ApiBadRequestResponse({ description: 'Herramienta desconocida o error en ejecución' })
   async callTool(@Body() body: { name: string; arguments: any }) {
     const { name, arguments: args } = body;
 
@@ -38,5 +60,4 @@ export class McpController {
       };
     }
   }
-
 }

@@ -10,6 +10,7 @@ import { IntranetAuthGuard } from 'src/auth/guards/intranet-auth.guard';
 import { ClientAuthGuard } from 'src/auth/guards/client-auth.guard';
 import { JwtClientStrategy } from 'src/auth/strategies/jwt-client.strategy';
 import { JwtIntranetStrategy } from 'src/auth/strategies/jwt-intranet.strategy';
+import { ApiTags } from '@nestjs/swagger';
 
 @Module({
   imports: [

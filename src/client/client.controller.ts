@@ -24,13 +24,32 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { RejectReasonDto, UpdateDocumentDto, UpdatePasswordDto, CreateClientDto } from './dto/create-client.dto';
 import { CombinedAuthGuard } from 'src/auth/guards/combined-auth.guard';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiParam,
+  ApiQuery,
+  ApiBearerAuth,
+  ApiConsumes,
+  ApiBody,
+  ApiUnauthorizedResponse,
+  ApiForbiddenResponse,
+  ApiNotFoundResponse,
+  ApiBadRequestResponse
+} from '@nestjs/swagger';
 
+@ApiTags('clients')
 @Controller('clients')
 export class ClientController {
   private logger = new Logger(ClientController.name);
   constructor(private readonly clientService: ClientService) { }
 
   @Post()
+  @ApiOperation({ summary: 'Crear nuevo cliente' })
+  @ApiBody({ description: 'Datos del cliente a crear' })
+  @ApiResponse({ status: 201, description: 'Cliente creado exitosamente' })
+  @ApiBadRequestResponse({ description: 'Datos inválidos' })
   async create(@Body() createClientDto: User): Promise<User> {
     try {
       return await this.clientService.create(createClientDto);
@@ -42,6 +61,13 @@ export class ClientController {
   // Acceso solo para clientes
   @UseGuards(CombinedAuthGuard)
   @Get(':id')
+  @ApiOperation({ summary: 'Obtener perfil de cliente' })
+  @ApiParam({ name: 'id', description: 'ID del cliente' })
+  @ApiBearerAuth()
+  @ApiResponse({ status: 200, description: 'Perfil del cliente' })
+  @ApiUnauthorizedResponse({ description: 'No autenticado' })
+  @ApiForbiddenResponse({ description: 'No autorizado para ver este perfil' })
+  @ApiNotFoundResponse({ description: 'Cliente no encontrado' })
   async get(
     @Param('id') id: string,
     @CurrentUser() user: any,
@@ -61,6 +87,13 @@ export class ClientController {
   // Solo intranet puede ver todos los usuarios
   @UseGuards(IntranetAuthGuard)
   @Get()
+  @ApiOperation({ summary: 'Obtener lista paginada de todos los clientes (solo intranet)' })
+  @ApiQuery({ name: 'page', required: false, description: 'Número de página', example: '1' })
+  @ApiQuery({ name: 'pageSize', required: false, description: 'Tamaño de página', example: '8' })
+  @ApiQuery({ name: 'search', required: false, description: 'Término de búsqueda' })
+  @ApiBearerAuth()
+  @ApiResponse({ status: 200, description: 'Lista de clientes con paginación' })
+  @ApiUnauthorizedResponse({ description: 'No autenticado' })
   async all(
     @Query('page') page: string = '1',
     @Query('pageSize') pageSize: string = '8',
@@ -76,6 +109,11 @@ export class ClientController {
   // Solo intranet puede buscar usuarios
   @UseGuards(IntranetAuthGuard)
   @Get('search/:query')
+  @ApiOperation({ summary: 'Buscar clientes por término (solo intranet)' })
+  @ApiParam({ name: 'query', description: 'Término de búsqueda' })
+  @ApiBearerAuth()
+  @ApiResponse({ status: 200, description: 'Resultados de búsqueda' })
+  @ApiUnauthorizedResponse({ description: 'No autenticado' })
   async search(@Param('query') query: string): Promise<User[]> {
     const results = await this.clientService.searchUser(query);
     if (!results) {
@@ -87,6 +125,14 @@ export class ClientController {
   // El cliente solo puede actualizar su propio perfil
   @UseGuards(CombinedAuthGuard)
   @Put(':id')
+  @ApiOperation({ summary: 'Actualizar perfil de cliente' })
+  @ApiParam({ name: 'id', description: 'ID del cliente' })
+  @ApiBody({ description: 'Datos a actualizar (sin contraseña)' })
+  @ApiBearerAuth()
+  @ApiResponse({ status: 200, description: 'Perfil actualizado exitosamente' })
+  @ApiUnauthorizedResponse({ description: 'No autenticado' })
+  @ApiForbiddenResponse({ description: 'No autorizado para actualizar este perfil' })
+  @ApiBadRequestResponse({ description: 'Datos inválidos' })
   async update(
     @Param('id') id: string,
     @Body() dataUser: Omit<User, 'password'>,
@@ -107,6 +153,14 @@ export class ClientController {
   // El cliente solo puede cambiar su propia contraseña
   @UseGuards(ClientAuthGuard)
   @Put(':id/password')
+  @ApiOperation({ summary: 'Cambiar contraseña del cliente' })
+  @ApiParam({ name: 'id', description: 'ID del cliente' })
+  @ApiBody({ type: UpdatePasswordDto, description: 'Nueva contraseña' })
+  @ApiBearerAuth()
+  @ApiResponse({ status: 200, description: 'Contraseña actualizada exitosamente' })
+  @ApiUnauthorizedResponse({ description: 'No autenticado' })
+  @ApiForbiddenResponse({ description: 'No autorizado para cambiar esta contraseña' })
+  @ApiBadRequestResponse({ description: 'Datos inválidos' })
   async updatePassword(
     @Param('id') id: string,
     @Body() updatePasswordDto: UpdatePasswordDto,
@@ -128,6 +182,13 @@ export class ClientController {
   @UseGuards(IntranetAuthGuard, RolesGuard)
   @Roles('admin')
   @Delete(':id')
+  @ApiOperation({ summary: 'Eliminar cliente (solo administradores)' })
+  @ApiParam({ name: 'id', description: 'ID del cliente a eliminar' })
+  @ApiBearerAuth()
+  @ApiResponse({ status: 200, description: 'Cliente eliminado exitosamente' })
+  @ApiUnauthorizedResponse({ description: 'No autenticado' })
+  @ApiForbiddenResponse({ description: 'No tiene permisos de administrador' })
+  @ApiBadRequestResponse({ description: 'Error al eliminar cliente' })
   async delete(@Param('id') id: string): Promise<User> {
     try {
       return await this.clientService.delete(id);
@@ -139,6 +200,12 @@ export class ClientController {
   // El cliente solo puede ver sus propios documentos
   @UseGuards(ClientAuthGuard)
   @Get(':userId/has-document-data')
+  @ApiOperation({ summary: 'Verificar si el cliente tiene datos de documento' })
+  @ApiParam({ name: 'userId', description: 'ID del usuario' })
+  @ApiBearerAuth()
+  @ApiResponse({ status: 200, description: 'Estado de datos de documento' })
+  @ApiUnauthorizedResponse({ description: 'No autenticado' })
+  @ApiForbiddenResponse({ description: 'No autorizado' })
   async hasDocumentData(
     @Param('userId') userId: string,
     @CurrentUser() user: any,
@@ -159,6 +226,27 @@ export class ClientController {
   @UseGuards(ClientAuthGuard)
   @Put(':userId/avatar')
   @UseInterceptors(FileInterceptor('file'))
+  @ApiOperation({ summary: 'Actualizar avatar del cliente' })
+  @ApiParam({ name: 'userId', description: 'ID del usuario' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    description: 'Archivo de imagen para el avatar',
+    schema: {
+      type: 'object',
+      properties: {
+        file: {
+          type: 'string',
+          format: 'binary',
+          description: 'Archivo de imagen (JPEG, JPG, PNG)'
+        }
+      }
+    }
+  })
+  @ApiBearerAuth()
+  @ApiResponse({ status: 200, description: 'Avatar actualizado exitosamente' })
+  @ApiUnauthorizedResponse({ description: 'No autenticado' })
+  @ApiForbiddenResponse({ description: 'No autorizado' })
+  @ApiBadRequestResponse({ description: 'Archivo inválido o error al procesar' })
   async updateAvatar(
     @Param('userId') userId: string,
     @UploadedFile() file: Express.Multer.File,
@@ -209,6 +297,27 @@ export class ClientController {
       },
     }),
   )
+  @ApiOperation({ summary: 'Actualizar documento del cliente' })
+  @ApiParam({ name: 'userId', description: 'ID del usuario' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    description: 'Archivo de documento',
+    schema: {
+      type: 'object',
+      properties: {
+        file: {
+          type: 'string',
+          format: 'binary',
+          description: 'Archivo PDF o imagen (máx. 10MB)'
+        }
+      }
+    }
+  })
+  @ApiBearerAuth()
+  @ApiResponse({ status: 200, description: 'Documento actualizado exitosamente' })
+  @ApiUnauthorizedResponse({ description: 'No autenticado' })
+  @ApiForbiddenResponse({ description: 'No autorizado' })
+  @ApiBadRequestResponse({ description: 'Archivo inválido o error al procesar' })
   async updateDocument(
     @Param('userId') userId: string,
     @UploadedFile() file: Express.Multer.File,
@@ -298,6 +407,27 @@ export class ClientController {
       },
     }),
   )
+  @ApiOperation({ summary: 'Actualizar selfie del cliente' })
+  @ApiParam({ name: 'userId', description: 'ID del usuario' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    description: 'Imagen de selfie',
+    schema: {
+      type: 'object',
+      properties: {
+        file: {
+          type: 'string',
+          format: 'binary',
+          description: 'Imagen de selfie (JPEG, JPG, PNG - máx. 5MB)'
+        }
+      }
+    }
+  })
+  @ApiBearerAuth()
+  @ApiResponse({ status: 200, description: 'Selfie actualizada exitosamente' })
+  @ApiUnauthorizedResponse({ description: 'No autenticado' })
+  @ApiForbiddenResponse({ description: 'No autorizado' })
+  @ApiBadRequestResponse({ description: 'Imagen inválida o error al procesar' })
   async updateSelfie(
     @Param('userId') userId: string,
     @UploadedFile() file: Express.Multer.File,
@@ -375,6 +505,12 @@ export class ClientController {
   // El cliente solo puede ver sus propios documentos
   @UseGuards(ClientAuthGuard)
   @Get(':userId/documents')
+  @ApiOperation({ summary: 'Listar documentos del cliente' })
+  @ApiParam({ name: 'userId', description: 'ID del usuario' })
+  @ApiBearerAuth()
+  @ApiResponse({ status: 200, description: 'Lista de documentos' })
+  @ApiUnauthorizedResponse({ description: 'No autenticado' })
+  @ApiForbiddenResponse({ description: 'No autorizado' })
   async listDocuments(
     @Param('userId') userId: string,
     @CurrentUser() user: any,
@@ -394,6 +530,13 @@ export class ClientController {
   // El cliente solo puede ver sus propios documentos
   @UseGuards(ClientAuthGuard)
   @Get(':userId/document')
+  @ApiOperation({ summary: 'Obtener documento del cliente' })
+  @ApiParam({ name: 'userId', description: 'ID del usuario' })
+  @ApiBearerAuth()
+  @ApiResponse({ status: 200, description: 'Documento encontrado' })
+  @ApiUnauthorizedResponse({ description: 'No autenticado' })
+  @ApiForbiddenResponse({ description: 'No autorizado' })
+  @ApiNotFoundResponse({ description: 'Documento no encontrado' })
   async getDocumentByUserId(
     @Param('userId') userId: string,
     @CurrentUser() user: any,
@@ -414,6 +557,14 @@ export class ClientController {
   @UseGuards(IntranetAuthGuard, RolesGuard)
   @Roles('admin', 'employee')
   @Put('loan-application/:id/reject')
+  @ApiOperation({ summary: 'Rechazar solicitud de préstamo (solo empleados/admin)' })
+  @ApiParam({ name: 'id', description: 'ID de la solicitud de préstamo' })
+  @ApiBody({ type: RejectReasonDto, description: 'Razón del rechazo' })
+  @ApiBearerAuth()
+  @ApiResponse({ status: 200, description: 'Solicitud rechazada exitosamente' })
+  @ApiUnauthorizedResponse({ description: 'No autenticado' })
+  @ApiForbiddenResponse({ description: 'No tiene permisos suficientes' })
+  @ApiBadRequestResponse({ description: 'Datos inválidos' })
   async changeReject(
     @Param('id') id: string,
     @Body() rejectDto: RejectReasonDto,
@@ -428,6 +579,10 @@ export class ClientController {
   // Solo intranet puede ver información de todos los clientes
   @UseGuards(IntranetAuthGuard)
   @Get('all/info')
+  @ApiOperation({ summary: 'Obtener información básica de todos los clientes (solo intranet)' })
+  @ApiBearerAuth()
+  @ApiResponse({ status: 200, description: 'Lista de información básica de clientes' })
+  @ApiUnauthorizedResponse({ description: 'No autenticado' })
   async getAllClientsInfo(): Promise<{ id: string; email: string; names: string }[]> {
     return await this.clientService.getAllClientsInfo();
   }
