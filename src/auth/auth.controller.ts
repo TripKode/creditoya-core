@@ -155,4 +155,44 @@ export class AuthController {
       throw error;
     }
   }
+
+  // Enviar PIN de autenticación por email
+  @Post('send-pin')
+  @ApiOperation({ summary: 'Enviar código PIN de autenticación por email' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        email: { type: 'string', description: 'Correo electrónico del usuario' }
+      },
+      required: ['email']
+    }
+  })
+  @ApiResponse({ status: 200, description: 'Código enviado exitosamente' })
+  @ApiBadRequestResponse({ description: 'Usuario no encontrado o cuenta suspendida' })
+  async sendAuthPin(@Body() body: { email: string }) {
+    return await this.authService.sendAuthPin(body.email);
+  }
+
+  // Verificar PIN y autenticar
+  @Post('verify-pin')
+  @ApiOperation({ summary: 'Verificar código PIN y autenticar usuario' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        email: { type: 'string', description: 'Correo electrónico del usuario' },
+        pin: { type: 'string', description: 'Código PIN de 6 dígitos' }
+      },
+      required: ['email', 'pin']
+    }
+  })
+  @ApiResponse({ status: 200, description: 'Autenticación exitosa' })
+  @ApiBadRequestResponse({ description: 'Código incorrecto, expirado o usuario no encontrado' })
+  async verifyAuthPin(
+    @Body() body: { email: string; pin: string },
+    @Res({ passthrough: true }) response: Response
+  ) {
+    return await this.authService.verifyAuthPin(body.email, body.pin, response);
+  }
 }

@@ -38,6 +38,7 @@ import { QueryService } from './services/query.service';
 import { LoanManagementService } from './services/loan-managment.service';
 import { StatusService } from './services/status.service';
 import { LoanDocumentService } from './services/document.service';
+import { ExtractsService } from './services/extracts.service';
 import {
   ApiTags,
   ApiOperation,
@@ -64,7 +65,8 @@ export class LoanController {
     private readonly loanQuery: QueryService,
     private readonly loanManagment: LoanManagementService,
     private readonly loanStatus: StatusService,
-    private readonly loanDocument: LoanDocumentService
+    private readonly loanDocument: LoanDocumentService,
+    private readonly extractsService: ExtractsService
   ) { }
 
   @UseGuards(ClientAuthGuard)
@@ -649,5 +651,104 @@ export class LoanController {
       }
       throw new BadRequestException(`Error al subir el documento: ${error.message}`);
     }
+  }
+
+  @UseGuards(IntranetAuthGuard, RolesGuard)
+  @Roles('admin', 'employee')
+  @Patch(':loanId/cycode')
+  @ApiOperation({ summary: 'Actualizar cycode del préstamo (solo admin/employee)' })
+  @ApiParam({ name: 'loanId', description: 'ID del préstamo' })
+  @ApiBody({ schema: { type: 'object', properties: { cycode: { type: 'string', description: 'Nuevo valor para cycode' } } } })
+  @ApiBearerAuth('JWT-auth')
+  @ApiResponse({ status: 200, description: 'Cycode actualizado exitosamente' })
+  @ApiUnauthorizedResponse({ description: 'No autenticado' })
+  @ApiForbiddenResponse({ description: 'No tiene permisos suficientes' })
+  @ApiBadRequestResponse({ description: 'Datos inválidos' })
+  async updateCycode(
+    @Param('loanId', ParseUUIDPipe) loanId: string,
+    @Body('cycode') cycode: string,
+  ) {
+    if (!cycode || cycode.trim() === '') {
+      throw new BadRequestException('El cycode no puede estar vacío');
+    }
+
+    return this.extractsService.updateCycode(loanId, cycode.trim());
+  }
+
+  @UseGuards(IntranetAuthGuard, RolesGuard)
+  @Roles('admin', 'employee')
+  @Patch(':cycode/extract')
+  @UseInterceptors(FileInterceptor('file'))
+  @ApiOperation({ summary: 'Actualizar extracto del préstamo (solo admin/employee)' })
+  @ApiParam({ name: 'cycode', description: 'Código cycode del préstamo' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    description: 'Archivo PDF del extracto',
+    schema: {
+      type: 'object',
+      properties: {
+        file: {
+          type: 'string',
+          format: 'binary',
+          description: 'Archivo PDF del extracto'
+        }
+      }
+    }
+  })
+  @ApiBearerAuth('JWT-auth')
+  @ApiResponse({ status: 200, description: 'Extracto actualizado exitosamente' })
+  @ApiUnauthorizedResponse({ description: 'No autenticado' })
+  @ApiForbiddenResponse({ description: 'No tiene permisos suficientes' })
+  @ApiBadRequestResponse({ description: 'Archivo inválido' })
+  async updateExtract(
+    @Param('cycode') cycode: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    if (!file) {
+      throw new BadRequestException('No se proporcionó ningún archivo');
+    }
+
+    // Validar que sea un PDF
+    if (file.mimetype !== 'application/pdf') {
+      throw new BadRequestException('Solo se permiten archivos PDF');
+    }
+
+    return this.extractsService.updateExtract(cycode, file);
+  }
+
+  @UseGuards(CombinedAuthGuard)
+  @Get(':cycode/extract')
+  @ApiOperation({ summary: 'Obtener información del extracto del préstamo' })
+  @ApiParam({ name: 'cycode', description: 'Código cycode del préstamo' })
+  @ApiBearerAuth('JWT-auth')
+  @ApiResponse({ status: 200, description: 'Información del extracto' })
+  @ApiUnauthorizedResponse({ description: 'No autenticado' })
+  @ApiForbiddenResponse({ description: 'No autorizado' })
+  @ApiNotFoundResponse({ description: 'Préstamo no encontrado' })
+  async getExtract(
+    @Param('cycode') cycode: string,
+    @CurrentUser() user: any
+  ) {
+    // Para clientes, verificar que el préstamo les pertenece
+    if (user.type === 'client') {
+      try {
+        const loan = await this.loanManagment.getByCycode(cycode);
+        if (loan.userId !== user.id) {
+          throw new ForbiddenException('No autorizado para ver este extracto');
+        }
+      } catch (error) {
+        if (error instanceof NotFoundException) {
+          throw new NotFoundException('Préstamo no encontrado');
+        }
+        throw error;
+      }
+    }
+
+    const extractInfo = await this.extractsService.getExtract(cycode);
+    if (!extractInfo) {
+      throw new NotFoundException('Extracto no encontrado');
+    }
+
+    return extractInfo;
   }
 }

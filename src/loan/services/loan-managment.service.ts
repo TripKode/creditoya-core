@@ -122,4 +122,31 @@ export class LoanManagementService {
             throw new BadRequestException('Error al obtener las solicitudes de préstamo');
         }
     }
+
+    // Método para obtener una solicitud de préstamo por cycode
+    async getByCycode(cycode: string): Promise<LoanApplication> {
+        try {
+            const loan = await this.prisma.loanApplication.findFirst({
+                where: { cycode },
+                include: {
+                    user: { include: { Document: true } },
+                    GeneratedDocuments: true,
+                    EventLoanApplication: {
+                        include: { LoanApplication: true }
+                    }
+                },
+            });
+
+            if (!loan) {
+                throw new NotFoundException(`No se encontraron solicitudes de préstamo para el cycode ${cycode}`);
+            }
+
+            return loan;
+        } catch (error) {
+            if (error instanceof NotFoundException) {
+                throw error;
+            }
+            throw new BadRequestException('Error al obtener la solicitud de préstamo');
+        }
+    }
 }

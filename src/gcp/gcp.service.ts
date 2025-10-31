@@ -416,4 +416,92 @@ export class GoogleCloudService {
       throw error;
     }
   }
+
+  /**
+   * Sube un archivo al bucket temporal de extracts de préstamos con acceso público.
+   * @param param0 Datos necesarios para subir el archivo.
+   * @returns Un objeto indicando el éxito y el nombre público del archivo.
+   * @throws Error si falla la subida del archivo
+   */
+  async uploadToTempExtractsBucket({
+    file,
+    name,
+    upId,
+    contentType,
+  }: {
+    file: Express.Multer.File;
+    name: string;
+    upId: string;
+    contentType?: string;
+  }): Promise<{ success: boolean; public_name: string }> {
+    // Validaciones iniciales con mensajes de error específicos
+    if (!file) {
+      this.logger.error('Error: No se proporcionó un archivo');
+      throw new Error('No se proporcionó un archivo');
+    }
+
+    if (!file.buffer || file.size < 1) {
+      this.logger.error('Error: El archivo está vacío o no tiene buffer');
+      throw new Error('El archivo está vacío o inválido');
+    }
+
+    try {
+      const bucketName = "creditoya-backup";
+
+      // Mapeo de tipos MIME a extensiones de archivo
+      const mimeToExt: Record<string, string> = {
+        'application/pdf': '.pdf',
+        'application/zip': '.zip',
+        'application/gzip': '.gz',
+        'application/x-gzip': '.gz',
+        'image/jpeg': '.jpg',
+        'image/png': '.png',
+        'application/msword': '.doc',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx'
+      };
+
+      // Obtener la extensión basada en el contentType
+      const extension = contentType ? (mimeToExt[contentType] || '.pdf') : '.pdf';
+      const fileName = `${name}-${upId}${extension}`;
+
+      this.logger.log(`Intentando subir archivo ${fileName} al bucket ${bucketName}`);
+
+      // Obtener instancia de Storage
+      const storage = this.getStorageInstance();
+      if (!storage) {
+        throw new Error('No se pudo inicializar la instancia de Storage');
+      }
+
+      // Convertir a buffer de forma segura (evitando doble conversión)
+      const buffer = file.buffer instanceof Buffer ? file.buffer : Buffer.from(file.buffer);
+
+      // Subir el archivo con acceso público
+      await storage
+        .bucket(bucketName)
+        .file(fileName)
+        .save(buffer, {
+          metadata: {
+            contentType: contentType || 'application/octet-stream'
+          },
+          public: true, // Hacer el archivo accesible públicamente
+          resumable: file.size > 5 * 1024 * 1024 // Usar resumable para archivos >5MB
+        });
+
+      this.logger.log(`Archivo subido exitosamente: ${fileName}`);
+
+      const public_name = `https://storage.googleapis.com/${bucketName}/${fileName}`;
+
+      return {
+        success: true,
+        public_name,
+      };
+    } catch (error) {
+      // Logging detallado del error
+      const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
+      this.logger.error(`Error al subir archivo a GCS (${name}-${upId}): ${errorMessage}`, error);
+
+      // Re-lanzar el error con información específica
+      throw new Error(`Error al subir el archivo a Google Cloud Storage: ${errorMessage}`);
+    }
+  }
 }

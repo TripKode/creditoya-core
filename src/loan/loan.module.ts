@@ -15,6 +15,7 @@ import { LoanManagementService } from './services/loan-managment.service';
 import { QueryService } from './services/query.service';
 import { StatusService } from './services/status.service';
 import { UtilityService } from './services/utility.service';
+import { ExtractsService } from './services/extracts.service';
 import { ApiTags } from '@nestjs/swagger';
 
 @Module({
@@ -38,6 +39,7 @@ import { ApiTags } from '@nestjs/swagger';
     QueryService,
     StatusService,
     UtilityService,
+    ExtractsService,
     
   ],
 })

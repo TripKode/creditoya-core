@@ -656,6 +656,8 @@ export class QueryService {
                     dateDisbursed: loan.dateDisbursed,
                     upSignatureId: loan.upSignatureId,
                     status: loan.status,
+                    cycode: loan.cycode,
+                    extract: loan.extract,
                     created_at: loan.created_at,
                     updated_at: loan.updated_at,
                     user: loan.user ? {

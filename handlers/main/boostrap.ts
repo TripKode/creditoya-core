@@ -110,6 +110,19 @@ export async function bootstrap() {
         .setTitle('CreditoYa Core API')
         .setDescription('API principal del sistema CreditoYa')
         .setVersion('1.0')
+        .addBearerAuth(
+          {
+            type: 'http',
+            scheme: 'bearer',
+            bearerFormat: 'JWT',
+            name: 'JWT',
+            description: 'Enter JWT token',
+            in: 'header',
+          },
+          'JWT-auth'
+        )
+        .addCookieAuth('intranet_token')
+        .addCookieAuth('creditoya_token')
         .addTag('auth', 'Autenticación y autorización')
         .addTag('loans', 'Gestión de préstamos')
         .addTag('clients', 'Gestión de clientes')

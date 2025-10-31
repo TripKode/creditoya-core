@@ -31,7 +31,6 @@ model User {
     PreLoanApplication     PreLoanApplication[]
 }
 
-
 model Document {
     id            String        @id @default(uuid()) @map("_id")
     user          User          @relation(fields: [userId], references: [id])
@@ -129,6 +128,8 @@ model LoanApplication {
     dateDisbursed        DateTime?
     upSignatureId        String
     status               StatusLoan             @default(Pendiente)
+    cycode               String?
+    extract              String?
     created_at           DateTime               @default(now())
     updated_at           DateTime               @updatedAt
     GeneratedDocuments   GeneratedDocuments[]
@@ -139,7 +140,6 @@ model LoanApplication {
     @@index([dateDisbursed])
     @@index([created_at])
     @@index([userId])
-
     // Índice compuesto para la consulta específica de pendientes de desembolso
     @@index([status, isDisbursed, dateDisbursed, created_at])
 }
@@ -184,6 +184,20 @@ model ReportIssue {
     resSupport  String?
     created_at  DateTime        @default(now())
     update_at   DateTime        @updatedAt
+}
+
+model BotUser {
+    id            String    @id @default(uuid()) @map("_id")
+    email         String    @unique
+    pin           String?
+    pinExpiry     DateTime?
+    lastPinSentAt DateTime?
+    isActive      Boolean   @default(true)
+    userId        String? // Referencia opcional al User si existe
+    created_at    DateTime  @default(now())
+    updated_at    DateTime  @updatedAt
+
+    @@index([pinExpiry])
 }
 
 enum StatusLoan {

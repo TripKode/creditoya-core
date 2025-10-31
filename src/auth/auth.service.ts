@@ -5,6 +5,7 @@ import * as bcrypt from 'bcryptjs';
 import { User, UsersIntranet } from '@prisma/client';
 import { ClientService } from 'src/client/client.service';
 import { Response } from 'express';
+import { MailService } from 'src/mail/mail.service';
 
 @Injectable()
 export class AuthService {
@@ -14,6 +15,7 @@ export class AuthService {
     private prisma: PrismaService,
     private jwtService: JwtService,
     private clientService: ClientService,
+    private mailService: MailService,
   ) { }
 
   // Para usuarios normales (clientes)
@@ -501,5 +503,139 @@ export class AuthService {
     });
 
     return loginResult;
+  }
+
+  // Generar PIN de 6 dígitos
+  private generatePin(): string {
+    return Math.floor(100000 + Math.random() * 900000).toString();
+  }
+
+  // Mapa temporal para almacenar PINs (en producción usar Redis o similar)
+  private pinStore = new Map<string, { pin: string; expiry: Date }>();
+
+  // Enviar PIN por email para autenticación (solo clientes)
+  async sendAuthPin(email: string): Promise<{ success: boolean; message: string }> {
+    this.logger.debug('Iniciando envío de PIN de autenticación', { email });
+
+    try {
+      // Verificar si el usuario cliente existe
+      const user = await this.prisma.user.findUnique({
+        where: { email },
+      });
+
+      if (!user) {
+        this.logger.warn('Intento de envío de PIN para email no registrado', { email });
+        throw new BadRequestException('Usuario no encontrado');
+      }
+
+      // Verificar si está baneado
+      if (user.isBan) {
+        this.logger.warn('Intento de envío de PIN para usuario suspendido', { email, userId: user.id });
+        throw new BadRequestException('Su cuenta ha sido suspendida');
+      }
+
+      // Generar PIN
+      const pin = this.generatePin();
+      const pinExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutos
+
+      // Guardar PIN en memoria temporal
+      this.pinStore.set(email, { pin, expiry: pinExpiry });
+
+      // Enviar email con el PIN
+      await this.mailService.sendCustomEmail({
+        email: user.email,
+        subject: 'Código de autenticación - CreditoYa',
+        message: `Su código de autenticación es: ${pin}\n\nEste código expira en 10 minutos.\n\nSi no solicitó este código, ignore este mensaje.`,
+        files: []
+      });
+
+      this.logger.debug('PIN de autenticación enviado exitosamente', {
+        userId: user.id,
+        email: user.email,
+        pinExpiry: pinExpiry.toISOString()
+      });
+
+      return {
+        success: true,
+        message: 'Código de autenticación enviado a su correo electrónico'
+      };
+
+    } catch (error) {
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+
+      this.logger.error('Error enviando PIN de autenticación', error, {
+        email,
+        operation: 'sendAuthPin'
+      });
+      throw new BadRequestException('Error enviando el código de autenticación');
+    }
+  }
+
+  // Verificar PIN y autenticar usuario (solo clientes)
+  async verifyAuthPin(email: string, pin: string, response?: Response): Promise<any> {
+    this.logger.debug('Iniciando verificación de PIN de autenticación', { email });
+
+    try {
+      // Buscar usuario cliente por email
+      const user = await this.prisma.user.findUnique({
+        where: { email },
+      });
+
+      if (!user) {
+        this.logger.warn('Intento de verificación de PIN para email no registrado', { email });
+        throw new BadRequestException('Usuario no encontrado');
+      }
+
+      // Obtener PIN almacenado
+      const storedPinData = this.pinStore.get(email);
+
+      if (!storedPinData) {
+        this.logger.warn('No hay PIN almacenado para este email', { email, userId: user.id });
+        throw new BadRequestException('Debe solicitar un código de autenticación primero');
+      }
+
+      // Verificar PIN
+      if (storedPinData.pin !== pin) {
+        this.logger.warn('PIN incorrecto', { email, userId: user.id });
+        throw new BadRequestException('Código de autenticación incorrecto');
+      }
+
+      // Verificar expiración
+      if (storedPinData.expiry < new Date()) {
+        this.logger.warn('PIN expirado', { email, userId: user.id });
+        this.pinStore.delete(email); // Limpiar PIN expirado
+        throw new BadRequestException('Código de autenticación expirado');
+      }
+
+      // Limpiar PIN usado
+      this.pinStore.delete(email);
+
+      // Realizar login automático
+      const loginResult = await this.loginClient(user, response);
+
+      this.logger.debug('PIN verificado y usuario autenticado exitosamente', {
+        userId: user.id,
+        email: user.email
+      });
+
+      return {
+        success: true,
+        message: 'Autenticación exitosa',
+        ...loginResult
+      };
+
+    } catch (error) {
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+
+      this.logger.error('Error verificando PIN de autenticación', error, {
+        email,
+        operation: 'verifyAuthPin'
+      });
+      throw new BadRequestException('Error verificando el código de autenticación');
+    }
   }
 }
